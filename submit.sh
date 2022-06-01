@@ -3,7 +3,7 @@
 #SBATCH -C gpu
 #SBATCH --account=m4134_g
 #SBATCH -q regular
-#SBATCH --nodes=1
+#SBATCH --nodes=4
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
