@@ -4,7 +4,7 @@ from matplotlib.colors import Normalize
 
 
 def viz_fields(flist):
-    pred, tar = flist
+    pred, tar, _ = flist
     pred = pred[0]
     tar = tar[0]
     sc = tar.max()
