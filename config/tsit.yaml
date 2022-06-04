@@ -123,3 +123,10 @@ bs64_cat:
   norm_G: 'fadebatch3x3'
   cat_inp: True
 
+bs64_cat_spec_l1:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
