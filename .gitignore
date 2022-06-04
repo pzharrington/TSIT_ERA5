@@ -2,4 +2,4 @@ __pycache__/
 *.out
 .ipynb_checkpoints/
 joblogs
-
+wandb/
