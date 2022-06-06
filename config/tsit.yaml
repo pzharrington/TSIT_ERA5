@@ -130,3 +130,40 @@ bs64_cat_spec_l1:
   norm_G: 'spectralfadebatch3x3'
   cat_inp: True
   use_l1_loss: True
+
+bs64_cat_spec_l1_0p75:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+  lambda_l1: 0.75
+
+bs64_cat_spec_l1_0p5:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+  lambda_l1: 0.5
+
+bs64_cat_spec_l1_0p25:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+  lambda_l1: 0.25
+
+debug:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+  log_to_wandb: False
+  save_checkpoint: False
