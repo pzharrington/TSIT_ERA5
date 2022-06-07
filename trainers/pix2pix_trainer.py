@@ -6,7 +6,8 @@ from torch.nn.parallel import DistributedDataParallel
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
 from utils.data_loader_multifiles import get_data_loader
-from utils.weighted_acc_rmse import weighted_acc_torch_channels, unlog_tp_torch
+from utils.weighted_acc_rmse import weighted_acc_torch_channels, unlog_tp_torch, \
+    unweighted_acc_torch_channels, unweighted_rmse_torch_channels
 from utils.viz import viz_fields
 import numpy as np
 import matplotlib.pyplot as plt
@@ -182,6 +183,10 @@ class Pix2PixTrainer():
                 logging.info('G losses = '+str(self.g_losses))
                 logging.info('D losses = '+str(self.d_losses))
                 logging.info('ACC = %f'%self.logs['acc'])
+                logging.info('ACC amp = %f'%self.logs['acc_amp'])
+                logging.info('ACC phase = %f'%self.logs['acc_phase'])
+                logging.info('RMSE amp = %f'%self.logs['rmse_amp'])
+                logging.info('RMSE phase = %f'%self.logs['rmse_phase'])
                 
         if self.log_to_wandb:
             wandb.finish()
@@ -232,6 +237,10 @@ class Pix2PixTrainer():
         preds = []
         targets = []
         acc = []
+        acc_amp = []
+        acc_phase = []
+        rmse_amp = []
+        rmse_phase = []
         inps = []
         nc, iw ,ih = self.params.output_nc, self.params.img_size[0], self.params.img_size[1]
         loop = time.time()
@@ -247,9 +256,21 @@ class Pix2PixTrainer():
                 gen = self.generate_validation(data)
                 g_time += time.time() - timer
                 timer = time.time()
-                acc.append(weighted_acc_torch_channels(unlog_tp_torch(gen, self.params.precip_eps), 
+                acc.append(weighted_acc_torch_channels(unlog_tp_torch(gen, self.params.precip_eps),
                                                        unlog_tp_torch(data[1], self.params.precip_eps)))
                 acctime += time.time() - timer
+                timer = time.time()
+                gen_fft = torch.fft.rfft2(gen, norm='ortho')
+                gen_amp = torch.log1p(gen_fft.abs())
+                gen_phase = gen_fft.angle()
+                tar_fft = torch.fft.rfft2(data[1], norm='ortho')
+                tar_amp = torch.log1p(tar_fft.abs())
+                tar_phase = tar_fft.angle()
+                acc_amp.append(unweighted_acc_torch_channels(gen_amp, tar_amp))
+                acc_phase.append(unweighted_acc_torch_channels(gen_phase, tar_phase))
+                rmse_amp.append(unweighted_rmse_torch_channels(gen_amp, tar_amp))
+                rmse_phase.append(unweighted_rmse_torch_channels(gen_phase, tar_phase))
+                spectime = time.time() - timer
                 preds.append(gen.detach())
                 targets.append(data[1].detach())
                 inps.append(image.detach())
@@ -258,6 +279,10 @@ class Pix2PixTrainer():
         preds = torch.cat(preds)
         targets = torch.cat(targets)
         acc = torch.cat(acc)
+        acc_amp = torch.cat(acc_amp)
+        acc_phase = torch.cat(acc_phase)
+        rmse_amp = torch.cat(rmse_amp)
+        rmse_phase = torch.cat(rmse_phase)
         inps = torch.cat(inps)
         '''
         # All-gather for full validation set currently OOMs
@@ -278,15 +303,21 @@ class Pix2PixTrainer():
             acc = torch.cat([x for x in acc_global])
         '''
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
-        fields = [preds[sample_idx].detach().cpu().numpy(), targets[sample_idx].detach().cpu().numpy(), inps[sample_idx].detach().cpu().numpy()]
+        fields = [preds[sample_idx].detach().cpu().numpy(),
+                  targets[sample_idx].detach().cpu().numpy(),
+                  inps[sample_idx].detach().cpu().numpy()]
 
         valid_time = time.time() - valid_start
         self.logs.update(
                 {'acc': acc.mean().item(),
+                 'acc_amp': acc_amp.mean().item(),
+                 'acc_phase': acc_phase.mean().item(),
+                 'rmse_amp': rmse_amp.mean().item(),
+                 'rmse_phase': rmse_phase.mean().item(),
                 }
         )
         agg = time.time() - timer 
-        if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, agg, valid_time - (g_time+ data_time + acctime + agg)))
+        if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, agg, valid_time - (g_time+ data_time + acctime + spectime + agg)))
         return valid_time, fields
 
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):

@@ -81,6 +81,11 @@ def weighted_rmse_torch_channels(pred: torch.Tensor, target: torch.Tensor) -> to
     return result
 
 @torch.jit.script
+def unweighted_rmse_torch_channels(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    result = torch.sqrt(torch.mean((pred - target)**2., dim=(-1,-2)))
+    return result
+
+@torch.jit.script
 def weighted_rmse_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     result = weighted_rmse_torch_channels(pred, target)
     return torch.mean(result, dim=0)
@@ -103,7 +108,10 @@ def weighted_acc_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor
     return torch.mean(result, dim=0)
 
 @torch.jit.script
-def unweighted_acc_torch_channels(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+def unweighted_acc_torch_channels(pred: torch.Tensor, target: torch.Tensor, ref: torch.Tensor = None) -> torch.Tensor:
+    if ref is not None:
+        pred = pred - ref
+        target = target - ref
     result = torch.sum(pred * target, dim=(-1,-2)) / torch.sqrt(torch.sum(pred * pred, dim=(-1,-2)) * torch.sum(target *
     target, dim=(-1,-2)))
     return result
