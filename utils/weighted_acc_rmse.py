@@ -22,11 +22,11 @@ def lat_np(j, num_lat):
 
 def unlog_tp(x, eps=1E-5):
 #    return np.exp(x + np.log(eps)) - eps
-    return eps*(np.exp(x)-1)
+    return eps*(np.expm1(x))
 
 def unlog_tp_torch(x, eps=1E-5):
 #    return torch.exp(x + torch.log(eps)) - eps
-    return eps*(torch.exp(x)-1.)
+    return eps*(torch.expm1(x))
 
 def weighted_acc(pred,target, weighted  = True):
     #takes in shape [1, num_lat, num_long]
@@ -108,10 +108,7 @@ def weighted_acc_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor
     return torch.mean(result, dim=0)
 
 @torch.jit.script
-def unweighted_acc_torch_channels(pred: torch.Tensor, target: torch.Tensor, ref: torch.Tensor = None) -> torch.Tensor:
-    if ref is not None:
-        pred = pred - ref
-        target = target - ref
+def unweighted_acc_torch_channels(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     result = torch.sum(pred * target, dim=(-1,-2)) / torch.sqrt(torch.sum(pred * pred, dim=(-1,-2)) * torch.sum(target *
     target, dim=(-1,-2)))
     return result

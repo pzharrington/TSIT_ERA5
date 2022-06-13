@@ -3,11 +3,12 @@ import torch
 from models.pix2pix_model import Pix2PixModel
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
+from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
 from utils.data_loader_multifiles import get_data_loader
-from utils.weighted_acc_rmse import weighted_acc_torch_channels, unlog_tp_torch, \
-    unweighted_acc_torch_channels, unweighted_rmse_torch_channels
+from utils.weighted_acc_rmse import weighted_acc_torch_channels, unlog_tp_torch
+from utils.spectra_metrics import *
 from utils.viz import viz_fields
 import numpy as np
 import matplotlib.pyplot as plt
@@ -55,6 +56,12 @@ class Pix2PixTrainer():
 
 
     def build_and_launch(self):
+        self.build()
+        # launch training
+        self.train()
+
+
+    def build(self):
 
         # init wandb
         if self.log_to_wandb:
@@ -142,9 +149,7 @@ class Pix2PixTrainer():
 
         self.logs = {}
 
-        # launch training
-        self.train()
-        
+
     def train(self):
         if self.log_to_screen:
             logging.info("Starting Training Loop...")
@@ -158,7 +163,7 @@ class Pix2PixTrainer():
 
             start = time.time()
             tr_time = self.train_one_epoch()
-            valid_time, fields = self.validate_one_epoch()
+            valid_time, fields, spectra = self.validate_one_epoch()
             self.schedulerG.step()
             self.schedulerD.step()
 
@@ -171,8 +176,11 @@ class Pix2PixTrainer():
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best)
 
             if self.log_to_wandb:
-                fig = viz_fields(fields)
+                fig = viz_fields(fields, self.params.precip_eps)
                 self.logs['viz'] = wandb.Image(fig)
+                plt.close(fig)
+                fig = viz_spectra(spectra)
+                self.logs['viz_spec'] = wandb.Image(fig)
                 plt.close(fig)
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
                 wandb.log(self.logs, step=self.epoch+1)
@@ -237,10 +245,8 @@ class Pix2PixTrainer():
         preds = []
         targets = []
         acc = []
-        acc_amp = []
-        acc_phase = []
-        rmse_amp = []
-        rmse_phase = []
+        ffts = {}
+        spec_metrics = {}
         inps = []
         nc, iw ,ih = self.params.output_nc, self.params.img_size[0], self.params.img_size[1]
         loop = time.time()
@@ -256,20 +262,16 @@ class Pix2PixTrainer():
                 gen = self.generate_validation(data)
                 g_time += time.time() - timer
                 timer = time.time()
-                acc.append(weighted_acc_torch_channels(unlog_tp_torch(gen, self.params.precip_eps),
-                                                       unlog_tp_torch(data[1], self.params.precip_eps)))
+                gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
+                tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
+                acc.append(weighted_acc_torch_channels(gen_unlog, tar_unlog))
                 acctime += time.time() - timer
                 timer = time.time()
-                gen_fft = torch.fft.rfft2(gen, norm='ortho')
-                gen_amp = torch.log1p(gen_fft.abs())
-                gen_phase = gen_fft.angle()
-                tar_fft = torch.fft.rfft2(data[1], norm='ortho')
-                tar_amp = torch.log1p(tar_fft.abs())
-                tar_phase = tar_fft.angle()
-                acc_amp.append(unweighted_acc_torch_channels(gen_amp, tar_amp))
-                acc_phase.append(unweighted_acc_torch_channels(gen_phase, tar_phase))
-                rmse_amp.append(unweighted_rmse_torch_channels(gen_amp, tar_amp))
-                rmse_phase.append(unweighted_rmse_torch_channels(gen_phase, tar_phase))
+                spec_dict = spectra_metrics_rfft2(gen_unlog, tar_unlog)
+                ffts.setdefault('pred', []).append(spec_dict.pop('pred_fft'))
+                ffts.setdefault('tar', []).append(spec_dict.pop('tar_fft'))
+                for key, metric in spec_dict.items():
+                    spec_metrics.setdefault(key, []).append(metric)
                 spectime = time.time() - timer
                 preds.append(gen.detach())
                 targets.append(data[1].detach())
@@ -278,12 +280,12 @@ class Pix2PixTrainer():
         timer = time.time()
         preds = torch.cat(preds)
         targets = torch.cat(targets)
+        pred_ffts = torch.cat(ffts['pred'])
+        target_ffts = torch.cat(ffts['tar'])
         acc = torch.cat(acc)
-        acc_amp = torch.cat(acc_amp)
-        acc_phase = torch.cat(acc_phase)
-        rmse_amp = torch.cat(rmse_amp)
-        rmse_phase = torch.cat(rmse_phase)
         inps = torch.cat(inps)
+        for key, metric in spec_metrics.items():
+            spec_metrics[key] = torch.cat(metric).mean().item()
         '''
         # All-gather for full validation set currently OOMs
         if self.world_size > 1:
@@ -306,19 +308,17 @@ class Pix2PixTrainer():
         fields = [preds[sample_idx].detach().cpu().numpy(),
                   targets[sample_idx].detach().cpu().numpy(),
                   inps[sample_idx].detach().cpu().numpy()]
+        spectra = [pred_ffts[sample_idx].detach().cpu().numpy(),
+                   target_ffts[sample_idx].detach().cpu().numpy()]
 
         valid_time = time.time() - valid_start
-        self.logs.update(
-                {'acc': acc.mean().item(),
-                 'acc_amp': acc_amp.mean().item(),
-                 'acc_phase': acc_phase.mean().item(),
-                 'rmse_amp': rmse_amp.mean().item(),
-                 'rmse_phase': rmse_phase.mean().item(),
-                }
-        )
+        self.logs.update({'acc': acc.mean().item()})
+        self.logs.update(spec_metrics)
         agg = time.time() - timer 
         if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, agg, valid_time - (g_time+ data_time + acctime + spectime + agg)))
-        return valid_time, fields
+
+        return valid_time, fields, spectra
+
 
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
         if not model:
@@ -337,6 +337,11 @@ class Pix2PixTrainer():
 
     def restore_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.local_rank))
+        if not dist.is_initialized():
+            # remove DDP 'module' prefix if not distributed
+            for key in checkpoint.keys():
+                if 'model_state' in key and checkpoint[key] is not None:
+                    consume_prefix_in_state_dict_if_present(checkpoint[key], 'module.')
         self.pix2pix_model.load_state(checkpoint)
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch'] + 1
@@ -382,4 +387,3 @@ class Pix2PixTrainer():
     def generate_validation(self, data):
         generated, _ = self.pix2pix_model.generate_fake(data[0], data[1])
         return generated
-
