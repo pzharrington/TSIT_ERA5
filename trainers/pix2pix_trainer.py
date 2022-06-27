@@ -8,8 +8,9 @@ import torch.optim.lr_scheduler as lr_scheduler
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.weighted_acc_rmse import weighted_acc_torch_channels, unlog_tp_torch
-from utils.spectra_metrics import *
-from utils.viz import viz_fields
+from utils.spectra_metrics import unweighted_spectra_metrics_rfft  # , \
+#     weighted_spectra_metrics_fft_input
+from utils.viz import viz_fields, viz_spectra
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
@@ -28,6 +29,9 @@ class Pix2PixTrainer():
         self.sweep_id = args.sweep_id
         self.root_dir = args.root_dir
         self.config = args.config
+        self.group = args.group
+        if self.group is not None:
+            self.root_dir = os.path.join(self.root_dir, self.group)
 
         params.amp = args.amp
         self.world_size = 1
@@ -44,7 +48,7 @@ class Pix2PixTrainer():
 
         torch.cuda.set_device(self.local_rank)
         torch.backends.cudnn.benchmark = True
-        
+
         if self.world_rank==0:
             params.log()
         self.log_to_screen = params.log_to_screen and self.world_rank==0
@@ -81,7 +85,7 @@ class Pix2PixTrainer():
                 self.params.checkpoint_path = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
                 self.params.resuming = True if os.path.isfile(self.params.checkpoint_path) else False
                 wandb.init(config=self.params.params, name=self.params.name, project=self.params.project, 
-                           entity=self.params.entity, resume=self.params.resuming)
+                           entity=self.params.entity, resume=self.params.resuming, group=self.group)
 
         # setup output dir
         if self.sweep_id:
@@ -153,7 +157,7 @@ class Pix2PixTrainer():
     def train(self):
         if self.log_to_screen:
             logging.info("Starting Training Loop...")
-        best = np.inf
+        best = 0.
         for epoch in range(self.startEpoch, self.params.niter+self.params.niter_decay):
             self.epoch = epoch
             if dist.is_initialized():
@@ -176,12 +180,12 @@ class Pix2PixTrainer():
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best)
 
             if self.log_to_wandb:
-                fig = viz_fields(fields, self.params.precip_eps)
+                fig = viz_fields(fields)
                 self.logs['viz'] = wandb.Image(fig)
                 plt.close(fig)
-                fig = viz_spectra(spectra)
-                self.logs['viz_spec'] = wandb.Image(fig)
-                plt.close(fig)
+                # fig = viz_spectra(spectra)
+                # self.logs['viz_spec'] = wandb.Image(fig)
+                # plt.close(fig)
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
                 wandb.log(self.logs, step=self.epoch+1)
 
@@ -191,11 +195,11 @@ class Pix2PixTrainer():
                 logging.info('G losses = '+str(self.g_losses))
                 logging.info('D losses = '+str(self.d_losses))
                 logging.info('ACC = %f'%self.logs['acc'])
-                logging.info('ACC amp = %f'%self.logs['acc_amp'])
-                logging.info('ACC phase = %f'%self.logs['acc_phase'])
                 logging.info('RMSE amp = %f'%self.logs['rmse_amp'])
                 logging.info('RMSE phase = %f'%self.logs['rmse_phase'])
-                
+                logging.info('FFL = %f'%self.logs['ffl'])
+                logging.info('FCL = %f'%self.logs['fcl'])
+
         if self.log_to_wandb:
             wandb.finish()
 
@@ -267,11 +271,14 @@ class Pix2PixTrainer():
                 acc.append(weighted_acc_torch_channels(gen_unlog, tar_unlog))
                 acctime += time.time() - timer
                 timer = time.time()
-                spec_dict = spectra_metrics_rfft2(gen_unlog, tar_unlog)
+                spec_dict = unweighted_spectra_metrics_rfft(gen, data[1])
                 ffts.setdefault('pred', []).append(spec_dict.pop('pred_fft'))
                 ffts.setdefault('tar', []).append(spec_dict.pop('tar_fft'))
+                # weighted_spec_dict = weighted_spectra_metrics_fft_input(ffts['pred'][-1],
+                #                                                         ffts['tar'][-1])
                 for key, metric in spec_dict.items():
                     spec_metrics.setdefault(key, []).append(metric)
+                    # spec_metrics.setdefault('weighted_'+key, []).append(weighted_spec_dict[key])
                 spectime = time.time() - timer
                 preds.append(gen.detach())
                 targets.append(data[1].detach())
