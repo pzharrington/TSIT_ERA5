@@ -17,48 +17,68 @@ class Stream(BaseNetwork):
         self.ppad = self.params.use_periodic_padding
         self.StreamResnetBlock = StreamResnetBlockPeriodic if self.ppad else StreamResnetBlock
         nf = params.ngf
-        
-        self.res_0 = self.StreamResnetBlock(params.input_nc, 1 * nf, params)  # 64-ch feature
-        self.res_1 = self.StreamResnetBlock(1  * nf, 2  * nf, params)   # 128-ch  feature
+
+        if nf == 32:
+            nf0 = 64
+        else:
+            nf0 = nf
+
+        self.res_0 = self.StreamResnetBlock(params.input_nc, nf, params)  # 64-ch feature
+        self.res_1 = self.StreamResnetBlock(1 * nf, 2 * nf, params)   # 128-ch  feature
         self.res_2 = self.StreamResnetBlock(2  * nf, 4  * nf, params)   # 256-ch  feature
         self.res_3 = self.StreamResnetBlock(4  * nf, 8  * nf, params)   # 512-ch  feature
-        self.res_4 = self.StreamResnetBlock(8  * nf, 16 * nf, params)   # 1024-ch feature
-        self.res_5 = self.StreamResnetBlock(16 * nf, 16 * nf, params)   # 1024-ch feature
-        self.res_6 = self.StreamResnetBlock(16 * nf, 16 * nf, params)   # 1024-ch feature
-        self.res_7 = self.StreamResnetBlock(16 * nf, 16 * nf, params) if params.num_upsampling_blocks != 6 else None   # 1024-ch feature
+        self.res_4 = self.StreamResnetBlock(8  * nf, 16 * nf, params)    # 1024-ch feature
+        self.res_5 = self.StreamResnetBlock(16 * nf, 16 * nf0, params)    # 1024-ch feature
+        self.res_6 = self.StreamResnetBlock(16 * nf0, 16 * nf0, params)   # 1024-ch feature
+        self.res_7 = self.StreamResnetBlock(16 * nf0, 16 * nf0, params) if params.num_upsampling_blocks == 8 else None   # 1024-ch feature
+        # self.res_8 = self.StreamResnetBlock(16 * nf, 16 * nf, params) if params.num_upsampling_blocks != 7 else None   # 1024-ch feature
 
-    def down(self, input):
-        return F.interpolate(input, scale_factor=0.5)
+    def down(self, input, size=None):
+        if size is None:
+            return F.interpolate(input, scale_factor=0.5)
+        return F.interpolate(input, size=size)
 
-    def forward(self,input):
+    def forward(self, input):
         # assume that input shape is (n,c,256,512)
 
-        x0 = self.res_0(input) # (n,64,256,512)
-        x1 = self.down(x0)
-        x1 = self.res_1(x1)    # (n,128,128,256)
+        x0 = self.res_0(input)  # (n,64,256,512) # (n, 64, 720, 1440)
+
+        img_size_log2 = 2**int(np.log2(self.params.img_size[0])), \
+            2**int(np.log2(self.params.img_size[1]))
+
+        if img_size_log2 != self.params.img_size:
+            x1 = self.down(x0, size=img_size_log2)
+        else:
+            x1 = self.down(x0)
+        x1 = self.res_1(x1)    # (n,128,128,256) # (n, 64, 512, 1024)
 
         x2 = self.down(x1)
-        x2 = self.res_2(x2)    # (n,256,64,128)
+        x2 = self.res_2(x2)    # (n,256,64,128) # (n, 128, 256, 512)
 
         x3 = self.down(x2)
-        x3 = self.res_3(x3)    # (n,512,32,64)
+        x3 = self.res_3(x3)    # (n,512,32,64) # (n, 256, 128, 256)
 
         x4 = self.down(x3)
-        x4 = self.res_4(x4)    # (n,1024,16,32)
+        x4 = self.res_4(x4)    # (n,1024,16,32) # (n, 512, 64, 128)
 
         x5 = self.down(x4)
-        x5 = self.res_5(x5)    # (n,1024,8,16)
+        x5 = self.res_5(x5)    # (n,1024,8,16) # (n, 1024, 32, 64)
 
         x6 = self.down(x5)
-        x6 = self.res_6(x6)    # (n,1024,4,8)
+        x6 = self.res_6(x6)    # (n,1024,4,8) # (n, 1024, 16, 32)
 
-        if self.params.num_upsampling_blocks != 6:
-            x7 = self.down(x6)
-            x7 = self.res_7(x7)    # (n,1024,2,4)
-        else:
-            x7 = None
+        if self.params.num_upsampling_blocks == 7:
+            return [None, x0, x1, x2, x3, x4, x5, x6]
+
+        x7 = self.down(x6)
+        x7 = self.res_7(x7)    # (n,1024,2,4) # (n, 1024, 8, 16)
 
         return [x0, x1, x2, x3, x4, x5, x6, x7]
+
+        # x8 = self.down(x7)
+        # x8 = self.res_8(x8)  # (n,1024,2,4) # (n, 1024, 4, 8)
+
+        # return [x0, x1, x2, x3, x4, x5, x6, x7, x8]
 
 
 # Additive noise stream inspired by StyleGAN.

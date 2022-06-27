@@ -12,6 +12,7 @@ base: &base
   global_means_path: '/pscratch/sd/s/shas1693/data/era5/global_means.npy'
   global_stds_path:  '/pscratch/sd/s/shas1693/data/era5/global_stds.npy'
   precip: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation'
+  precip_time_means: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation/time_means.npy'
   precip_eps: 1e-5 # epsilon for normalizing precip log(1+tp/eps)
   dt: 1 # timestep length
   n_history: 0 # history input
@@ -109,18 +110,53 @@ bs64_nopad_spec:
   use_periodic_padding: False
   norm_G: 'spectralfadebatch3x3'
 
-bs64_cat_spec:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  cat_inp: True
-
 bs64_cat:
   <<: *base
   batch_size: 64
   use_periodic_padding: True
   norm_G: 'fadebatch3x3'
+  cat_inp: True
+
+bs64_cat_l1:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'fadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+
+bs64_cat_l1_0p75:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'fadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+  lambda_l1: 0.75
+
+bs64_cat_l1_0p5:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'fadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+  lambda_l1: 0.5
+
+bs64_cat_l1_0p25:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'fadebatch3x3'
+  cat_inp: True
+  use_l1_loss: True
+  lambda_l1: 0.25
+
+bs64_cat_spec:
+  <<: *base
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
   cat_inp: True
 
 bs64_cat_spec_l1:
@@ -158,12 +194,37 @@ bs64_cat_spec_l1_0p25:
   use_l1_loss: True
   lambda_l1: 0.25
 
-debug:
+bs64_ngf32_l1:
   <<: *base
+  ngf: 32
+  num_upsampling_blocks: 8
+  img_size: [720, 1440]
   batch_size: 64
   use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  cat_inp: True
+  norm_G: 'fadebatch3x3'
+  use_l1_loss: True
+
+bs64_ngf32_l1_nofeat:
+  <<: *base
+  ngf: 32
+  no_ganFeat_loss: True
+  num_upsampling_blocks: 8
+  img_size: [720, 1440]
+  batch_size: 64
+  use_periodic_padding: True
+  norm_G: 'fadebatch3x3'
+  use_l1_loss: True
+
+debug:
+  <<: *base
+  batch_size: 16
+  no_ganFeat_loss: True
+  norm_G: 'fadebatch3x3'
+  ngf: 32
+  num_upsampling_blocks: 8
+  img_size: [720, 1440]
+  use_periodic_padding: True
+  cat_inp: False
   use_l1_loss: True
   log_to_wandb: False
   save_checkpoint: False

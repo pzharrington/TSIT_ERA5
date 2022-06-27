@@ -23,6 +23,8 @@ if __name__ == '__main__':
     parser.add_argument("--root_dir", default='./', type=str, help='root dir to store results')
     parser.add_argument("--amp", action='store_true')
     parser.add_argument("--sweep_id", default=None, type=str, help='sweep config from ./configs/sweeps.yaml')
+    parser.add_argument("--group", default=None, type=str, help='group for wandb init')
+    # parser.add_argument("--slurm_id", default=None, type=str, help='slurm job ID')
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
