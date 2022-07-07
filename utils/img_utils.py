@@ -6,7 +6,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 import numpy as np
-import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torch import Tensor
@@ -38,7 +37,6 @@ def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
     if len(np.shape(img)) ==3:
       img = np.expand_dims(img, 0)
 
-    
     img = img[:, :, 0:720] #remove last pixel
     n_history = np.shape(img)[0] - 1
     img_shape_x = np.shape(img)[-2]
@@ -92,9 +90,13 @@ def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
     elif inp_or_tar == 'tar':
         img = np.reshape(img, (n_channels, crop_size_x, crop_size_y))
 
-    outx, outy = params.img_size
-    return TF.resize(torch.as_tensor(img), size=(outx,outy)) # resize to power of 2 dims for now
-          
+    img = torch.as_tensor(img)
+
+    if params.img_size != img.shape:
+        outx, outy = params.img_size
+        img = TF.resize(img, size=(outx,outy))
+    return img
+
 def reshape_precip(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, params, y_roll, train, normalize=True):
 
     if len(np.shape(img)) ==2:
@@ -137,7 +139,10 @@ def reshape_precip(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
     if train and (crop_size_x or crop_size_y):
         img = img[:,rnd_x:rnd_x+crop_size_x, rnd_y:rnd_y+crop_size_y]
 
-    img = np.reshape(img, (n_channels, crop_size_x, crop_size_y))
-    outx, outy = params.img_size
-    return TF.resize(torch.as_tensor(img), size=(outx,outy)) # resize to power of 2 dims for now
+    img = torch.as_tensor(np.reshape(img, (n_channels, crop_size_x, crop_size_y)))
 
+    if params.img_size != img.shape:
+        outx, outy = params.img_size
+        img = TF.resize(img, size=(outx,outy))
+
+    return img

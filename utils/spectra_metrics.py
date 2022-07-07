@@ -1,18 +1,63 @@
 import torch
 from typing import Dict, List, Optional
-from utils.weighted_acc_rmse import weighted_acc_torch_channels, weighted_rmse_torch_channels, \
-    unweighted_acc_torch_channels, unweighted_rmse_torch_channels
+from utils.weighted_acc_rmse import lat, latitude_weighting_factor_torch
 
 @torch.jit.script
-def freq_weights(i: torch.Tensor, num_freq: int) -> torch.Tensor:
+def rmse_torch_channels(pred: torch.Tensor, target: torch.Tensor, weight: Optional[torch.Tensor]=None, dim: Optional[List[int]]=None) -> torch.Tensor:
+    if dim is None:
+        dim = [-1, -2]
+    if weight is None:
+        weight = torch.ones_like(pred)
+    result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=dim))
+    return result
+
+@torch.jit.script
+def acc_torch_channels(pred: torch.Tensor, target: torch.Tensor, weight: Optional[torch.Tensor]=None, dim: Optional[List[int]]=None) -> torch.Tensor:
+    if dim is None:
+        dim = [-1, -2]
+    if weight is None:
+        weight = torch.ones_like(pred)
+    result = torch.sum(weight * pred * target, dim=dim) / torch.sqrt(torch.sum(weight * pred * pred, dim=dim) * torch.sum(weight * target * target, dim=dim))
+    return result
+
+@torch.jit.script
+def freq_weights(num_freq: int) -> torch.Tensor:
+    freq_t = torch.arange(start=num_freq - 1, end=-1, step=-1)
     lam = 1. / (num_freq / 10.)
-    freq_weights = lam * torch.exp(-lam*i)
-    freq_weights = freq_weights / freq_weights.sum()
-    return num_freq * torch.reshape(freq_weights, (1, 1, 1, -1))
+    freq_weights = lam * torch.exp(-lam*freq_t)
+    freq_weights = freq_weights / freq_weights.max()
+    return torch.reshape(freq_weights, (1, 1, 1, -1))
 
 @torch.jit.script
-def ffl_torch(pred_fft: torch.Tensor, target_fft: torch.Tensor, # matrix: torch.Tensor=None,
-              alpha: float=1., log_matrix: bool=False, batch_matrix: bool=False) -> torch.Tensor:
+def fl_weights(num_freq: int, num_lat: int, freq_weighting: bool=False, lat_weighting: bool=False, clamp: bool=True) -> torch.Tensor:
+
+    if freq_weighting:
+        w = freq_weights(num_freq)
+    else:
+        w = torch.ones(1, 1, 1, num_freq)
+
+    if lat_weighting:
+        lat_t = torch.arange(start=0, end=num_lat)
+        s = torch.sum(torch.cos(3.1416/180. * lat(lat_t, num_lat)))
+        lat_w = torch.reshape(latitude_weighting_factor_torch(lat_t, num_lat, s),
+                              (1, 1, -1, 1))
+        if freq_weighting:
+            # lat_w = num_freq * torch.outer(lat_w.squeeze(), w.squeeze())
+            lat_w = torch.outer(lat_w.squeeze(), w.squeeze())
+
+        w = lat_w
+
+    w = w.expand(1, 1, num_lat, num_freq)
+
+    if clamp:
+        w = torch.clamp(w, min=0., max=1.)
+
+    return w
+
+@torch.jit.script
+def ffl_torch(pred_fft: torch.Tensor, target_fft: torch.Tensor,
+              alpha: float=1., log_matrix: bool=False, batch_matrix: bool=False,
+              weight: Optional[torch.Tensor]=None) -> torch.Tensor:
     """Focal Frequency Loss
     See https://github.com/EndlessSora/focal-frequency-loss
 
@@ -27,8 +72,13 @@ def ffl_torch(pred_fft: torch.Tensor, target_fft: torch.Tensor, # matrix: torch.
     #     weight_matrix = matrix.detach()
     # else:
 
+    if weight is None:
+        weight = torch.ones_like(pred_freq)
+    else:
+        weight = torch.stack([weight, weight], -1)
+
     # if the matrix is calculated online: continuous, dynamic, based on current Euclidean distance
-    matrix_tmp = (pred_freq - target_freq) ** 2
+    matrix_tmp = weight * (pred_freq - target_freq) ** 2
     matrix_tmp = torch.sqrt(matrix_tmp[..., 0] + matrix_tmp[..., 1]) ** alpha
 
     # whether to adjust the spectrum weight matrix by logarithm
@@ -60,22 +110,42 @@ def ffl_torch(pred_fft: torch.Tensor, target_fft: torch.Tensor, # matrix: torch.
 
 @torch.jit.script
 def fcl_torch(pred_amp: torch.Tensor, pred_phase: torch.Tensor,
-              target_amp: torch.Tensor, target_phase: torch.Tensor) -> torch.Tensor:
-    """Fourier Coefficient Loss
+              target_amp: torch.Tensor, target_phase: torch.Tensor,
+              weight: Optional[torch.Tensor]=None) -> torch.Tensor:
+    """Fourier Coefficient Lossprecip_eps
     See https://github.com/juglab/FourierImageTransformer
     """
     amp_loss = 1 + torch.pow(pred_amp - target_amp, 2)
     phi_loss = 2 - torch.cos(pred_phase - target_phase)
-    return amp_loss * phi_loss
+    if weight is None:
+        weight = torch.ones_like(pred_amp)
+    return weight * amp_loss * phi_loss
 
 @torch.jit.script
-def unweighted_spectra_metrics_fft_input(pred_fft: torch.Tensor, target_fft: torch.Tensor, dim_mean: Optional[List[int]]=None,
-                              alpha: float=1., log_ffl: bool=False, batch_ffl: bool=False) -> Dict[str, torch.Tensor]:
+def spectra_metrics_fft_input(pred_fft: torch.Tensor,
+                              target_fft: torch.Tensor,
+                              dim_mean: Optional[List[int]]=None,
+                              alpha: float=1.,
+                              log_ffl: bool=False,
+                              batch_ffl: bool=False,
+                              freq_weighting: bool=False,
+                              lat_weighting: bool=False) -> Dict[str, torch.Tensor]:
+
+    num_lat = pred_fft.shape[-2]
+    num_freq = pred_fft.shape[-1]
+
+    w = fl_weights(num_freq, num_lat, freq_weighting, lat_weighting).to(pred_fft.device)
+
+    assert w.shape[-1] == pred_fft.shape[-1], \
+        f'unexpected weights shape: {w.shape}'
+    assert w.shape[-2] == pred_fft.shape[-2], \
+        f'unexpected weights shape: {w.shape}'
+
     pred_amp = pred_fft.abs()
-    pred_phase = pred_fft.angle()
+    pred_phase = torch.sin(pred_fft.angle())
 
     tar_amp = target_fft.abs()
-    tar_phase = target_fft.angle()
+    tar_phase = torch.sin(target_fft.angle())
 
     if dim_mean is None:
         dim_mean = [-2, -1]
@@ -86,91 +156,49 @@ def unweighted_spectra_metrics_fft_input(pred_fft: torch.Tensor, target_fft: tor
     tpm = tar_phase.mean(dim=dim_mean, keepdim=True)
 
     out_dict = {
-        'acc_amp': torch.nan_to_num(unweighted_acc_torch_channels(pred_amp-pam, tar_amp-tam, dim=dim_mean)),
-        'acc_phase': torch.nan_to_num(unweighted_acc_torch_channels(pred_phase-ppm, tar_phase-tpm, dim=dim_mean)),
-        'rmse_amp': unweighted_rmse_torch_channels(pred_amp, tar_amp, dim=dim_mean),
-        'rmse_phase': unweighted_rmse_torch_channels(pred_phase, tar_phase, dim=dim_mean),
-        'ffl': torch.mean(ffl_torch(pred_fft, target_fft, alpha, log_ffl, batch_ffl), dim=dim_mean),
-        'fcl': torch.mean(fcl_torch(pred_amp, pred_phase, tar_amp, tar_phase), dim=dim_mean),
-    }
-    return out_dict
-
-@torch.jit.script
-def unweighted_spectra_metrics_rfft2(pred: torch.Tensor, target: torch.Tensor, eps: float=1., dim_mean: Optional[List[int]]=None,
-                                     alpha: float=1., log_ffl: bool=False, batch_ffl: bool=False) -> Dict[str, torch.Tensor]:
-    if dim_mean is None:
-        dim_mean = [-2, -1]
-
-    pred_fft = torch.fft.rfft2(pred, norm='ortho')
-    tar_fft = torch.fft.rfft2(target, norm='ortho')
-    out_dict = unweighted_spectra_metrics_fft_input(pred_fft/eps, tar_fft/eps, dim_mean, alpha, log_ffl, batch_ffl)
-    out_dict.update({'pred_fft': pred_fft, 'tar_fft': tar_fft})
-    return out_dict
-
-@torch.jit.script
-def unweighted_spectra_metrics_rfft(pred: torch.Tensor, target: torch.Tensor, dim: int=-1, eps: float=1., dim_mean: Optional[List[int]]=None,
-                                    alpha: float=1., log_ffl: bool=False, batch_ffl: bool=False) -> Dict[str, torch.Tensor]:
-    if dim_mean is None:
-        dim_mean = [-2, -1]
-
-    pred_fft = torch.fft.rfft(pred, dim=dim, norm='ortho')
-    tar_fft = torch.fft.rfft(target, dim=dim, norm='ortho')
-    out_dict = unweighted_spectra_metrics_fft_input(pred_fft/eps, tar_fft/eps, dim_mean, alpha, log_ffl, batch_ffl)
-    out_dict.update({'pred_fft': pred_fft, 'tar_fft': tar_fft})
-    return out_dict
-
-@torch.jit.script
-def weighted_spectra_metrics_fft_input(pred_fft: torch.Tensor, target_fft: torch.Tensor, dim_mean: Optional[List[int]]=None,
-                                       alpha: float=1., log_ffl: bool=False, batch_ffl: bool=False) -> Dict[str, torch.Tensor]:
-    pred_amp = pred_fft.abs()
-    pred_phase = pred_fft.angle()
-    tar_amp = target_fft.abs()
-    tar_phase = target_fft.angle()
-
-    num_freq = pred_amp.shape[3]
-    freq_t = torch.arange(start=0, end=num_freq, device=pred_amp.device)
-    w = freq_weights(freq_t, num_freq)
-    sqrt_w = torch.sqrt(w)
-
-    if dim_mean is None:
-        dim_mean = [-2, -1]
-
-    pam = pred_amp.mean(dim=dim_mean, keepdim=True)
-    ppm = pred_phase.mean(dim=dim_mean, keepdim=True)
-    tam = tar_amp.mean(dim=dim_mean, keepdim=True)
-    tpm = tar_phase.mean(dim=dim_mean, keepdim=True)
-
-    out_dict = {
-        'acc_amp': torch.nan_to_num(unweighted_acc_torch_channels(sqrt_w * (pred_amp-pam), sqrt_w * (tar_amp-tam), dim=dim_mean)),
-        'acc_phase': torch.nan_to_num(unweighted_acc_torch_channels(sqrt_w * (pred_phase-ppm), sqrt_w * (tar_phase-tpm), dim=dim_mean)),
-        'rmse_amp': unweighted_rmse_torch_channels(sqrt_w * pred_amp, sqrt_w * tar_amp, dim=dim_mean),
-        'rmse_phase': unweighted_rmse_torch_channels(sqrt_w * pred_phase, sqrt_w * tar_phase, dim=dim_mean),
-        'ffl': torch.mean(w * ffl_torch(pred_fft, target_fft, alpha, log_ffl, batch_ffl), dim=dim_mean),
-        'fcl': torch.mean(w * fcl_torch(pred_amp, pred_phase, tar_amp, tar_phase), dim=dim_mean),
+        'corr_amp': torch.nan_to_num(acc_torch_channels(pred_amp - pam, tar_amp - tam, weight=w, dim=dim_mean)),
+        'corr_phase': torch.nan_to_num(acc_torch_channels(pred_phase - ppm, tar_phase - tpm, weight=w, dim=dim_mean)),
+        'rmse_amp': rmse_torch_channels(pred_amp, tar_amp, weight=w, dim=dim_mean),
+        'rmse_phase': rmse_torch_channels(pred_phase, tar_phase, weight=w, dim=dim_mean),
+        'ffl': torch.mean(ffl_torch(pred_fft, target_fft, alpha, log_ffl, batch_ffl, weight=w), dim=dim_mean),
+        'fcl': torch.mean(fcl_torch(pred_amp, pred_phase, tar_amp, tar_phase, weight=w), dim=dim_mean),
     }
 
     return out_dict
 
 @torch.jit.script
-def weighted_spectra_metrics_rfft2(pred: torch.Tensor, target: torch.Tensor, eps: float=1., dim_mean: Optional[List[int]]=None,
-                                   alpha: float=1., log_ffl: bool=False, batch_ffl: bool=False) -> Dict[str, torch.Tensor]:
+def spectra_metrics_rfft2(pred: torch.Tensor,
+                          target: torch.Tensor,
+                          dim_mean: Optional[List[int]]= None,
+                          alpha: float=1.,
+                          log_ffl: bool=False,
+                          batch_ffl: bool=False,
+                          freq_weighting: bool=False,
+                          lat_weighting: bool=False) -> Dict[str, torch.Tensor]:
     if dim_mean is None:
         dim_mean = [-2, -1]
 
     pred_fft = torch.fft.rfft2(pred, norm='ortho')
     tar_fft = torch.fft.rfft2(target, norm='ortho')
-    out_dict = weighted_spectra_metrics_fft_input(pred_fft/eps, tar_fft/eps, dim_mean, alpha, log_ffl, batch_ffl)
+    out_dict = spectra_metrics_fft_input(pred_fft, tar_fft, dim_mean, alpha, log_ffl, batch_ffl)
     out_dict.update({'pred_fft': pred_fft, 'tar_fft': tar_fft})
     return out_dict
 
 @torch.jit.script
-def weighted_spectra_metrics_rfft(pred: torch.Tensor, target: torch.Tensor, dim: int=-1, eps: float=1., dim_mean: Optional[List[int]]=None,
-                                  alpha: float=1., log_ffl: bool=False, batch_ffl: bool=False) -> Dict[str, torch.Tensor]:
+def spectra_metrics_rfft(pred: torch.Tensor,
+                         target: torch.Tensor,
+                         dim: int=-1,
+                         dim_mean: Optional[List[int]]=None,
+                         alpha: float=1.,
+                         log_ffl: bool=False,
+                         batch_ffl: bool=False,
+                         freq_weighting: bool=False,
+                         lat_weighting: bool=False) -> Dict[str, torch.Tensor]:
     if dim_mean is None:
         dim_mean = [-2, -1]
 
     pred_fft = torch.fft.rfft(pred, dim=dim, norm='ortho')
     tar_fft = torch.fft.rfft(target, dim=dim, norm='ortho')
-    out_dict = weighted_spectra_metrics_fft_input(pred_fft/eps, tar_fft/eps, dim_mean, alpha, log_ffl, batch_ffl)
+    out_dict = spectra_metrics_fft_input(pred_fft, tar_fft, dim_mean, alpha, log_ffl, batch_ffl)
     out_dict.update({'pred_fft': pred_fft, 'tar_fft': tar_fft})
     return out_dict

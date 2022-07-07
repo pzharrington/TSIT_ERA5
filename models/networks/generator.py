@@ -17,43 +17,39 @@ class TSITGenerator(BaseNetwork):
     def __init__(self, params):
         super().__init__()
         self.params = params
+        nf0 = params.ngf0
         nf = params.ngf
         self.ppad = self.params.use_periodic_padding
         self.FADEResnetBlock = FADEResnetBlockPeriodic if self.ppad else FADEResnetBlock
 
         self.sw, self.sh, self.n_stages = self.compute_latent_vector_size()
-        self.content_stream = Stream(self.params, reshape_size=(self.sh*(2**self.n_stages), self.sw*(2**self.n_stages)))
+        self.content_stream = Stream(self.params)  # , reshape_size=(self.sh*(2**self.n_stages), self.sw*(2**self.n_stages)))
         self.style_stream = Stream(self.params) if not self.params.no_ss else None
         self.noise_stream = NoiseStream(self.params) if self.params.additive_noise else None
 
-        if nf == 32:
-            nf0 = 64
-        else:
-            nf0 = nf
-
         if params.use_vae:
             # In case of VAE, we will sample from random z vector
-            self.fc = nn.Linear(params.z_dim, 16 * nf0 * self.sw * self.sh)
+            self.fc = nn.Linear(params.z_dim, 16 * nf * self.sw * self.sh)
         else:
             # Otherwise, we make the network deterministic by starting with
             # downsampled input instead of random z
             self.nz = self.params.z_dim if not self.params.downsamp else self.params.input_nc
             padder = PeriodicPad2d(1) if self.ppad else nn.Identity()
             convpad = 0 if self.ppad else 1
-            self.fc = nn.Sequential(padder, nn.Conv2d(self.nz, 16 * nf0, 3, padding=convpad))
+            self.fc = nn.Sequential(padder, nn.Conv2d(self.nz, 16 * nf, 3, padding=convpad))
 
-        self.head_0 = self.FADEResnetBlock(16 * nf0, 16 * nf0, params)
+        self.head_0 = self.FADEResnetBlock(16 * nf, 16 * nf, params)
 
-        self.G_middle_0 = self.FADEResnetBlock(16 * nf0, 16 * nf0, params) if self.params.num_upsampling_blocks == 8 else None
-        self.G_middle_1 = self.FADEResnetBlock(16 * nf0, 16 * nf, params)
+        self.G_middle_0 = self.FADEResnetBlock(16 * nf, 16 * nf, params) # if self.params.num_upsampling_blocks == 8 else None
+        self.G_middle_1 = self.FADEResnetBlock(16 * nf, 16 * nf, params)
 
-        self.up_0 = self.FADEResnetBlock(16 * nf, 8 * nf, params)
-        self.up_1 = self.FADEResnetBlock(8 * nf, 4 * nf, params)
-        self.up_2 = self.FADEResnetBlock(4 * nf, 2 * nf, params)
-        self.up_3 = self.FADEResnetBlock(2 * nf, 1 * nf, params)
-        self.up_4 = self.FADEResnetBlock(1 * nf, 1 * nf, params) # if self.params.num_upsampling_blocks == 8 else None
+        self.up_0 = self.FADEResnetBlock(16 * nf,  8 * nf, params)
+        self.up_1 = self.FADEResnetBlock(8  * nf,  4 * nf, params)
+        self.up_2 = self.FADEResnetBlock(4  * nf,  2 * nf, params)
+        self.up_3 = self.FADEResnetBlock(2  * nf,  1 * nf0, params)
+        self.up_4 = self.FADEResnetBlock(1  * nf0, 1 * nf0, params) if self.params.num_upsampling_blocks == 8 else None
 
-        final_nc = nf
+        final_nc = nf0
 
         if self.ppad:
             self.conv_img = nn.Sequential(PeriodicPad2d(1), nn.Conv2d(final_nc, self.params.output_nc, 3, padding=0))
@@ -71,12 +67,18 @@ class TSITGenerator(BaseNetwork):
         img_size_log2 = 2**int(np.log2(self.params.img_size[0])), \
             2**int(np.log2(self.params.img_size[1]))
 
+        if self.params.DEBUG:
+            assert img_size_log2[0] == 512 and img_size_log2[1] == 1024, \
+                f'Unexpected img_size_log2: {img_size_log2}'
+
         if img_size_log2 != self.params.img_size:
-            sw, sh = img_size_log2[0] // (2**(num_blocks-2)), \
-                img_size_log2[1] // (2**(num_blocks-2))
+            sw, sh = img_size_log2[0] // (2**6), \
+                img_size_log2[1] // (2**6)
+            assert sw == 8 and sh == 16, \
+                f'Unexpected (sw, sh): {(sw, sh)}'
         else:
-            sw, sh = img_size_log2[0] // (2**num_blocks), \
-                img_size_log2[1] // (2**num_blocks)
+            sw, sh = img_size_log2[0] // (2**7), \
+                img_size_log2[1] // (2**7)
 
         return sw, sh, num_blocks
 
@@ -114,14 +116,15 @@ class TSITGenerator(BaseNetwork):
         x = x + nft7 if self.params.additive_noise else x
         x = self.head_0(x, ft7) # (n, 1024, 16, 32)
 
+        # if self.params.num_upsampling_blocks == 8:
 
-        if self.params.num_upsampling_blocks == 8:
-            x = self.up(x)
-            x = self.fadain_alpha(x, sft6, alpha=self.params.alpha) if not self.params.no_ss else x
-            x = x + nft6 if self.params.additive_noise else x
-            x = self.G_middle_0(x, ft6) # (n, 1024, 32, 64)
-        else:
-            ft0, ft1, ft2, ft3, ft4, ft5 = ft1, ft2, ft3, ft4, ft5, ft6
+        x = self.up(x)
+        x = self.fadain_alpha(x, sft6, alpha=self.params.alpha) if not self.params.no_ss else x
+        x = x + nft6 if self.params.additive_noise else x
+        x = self.G_middle_0(x, ft6) # (n, 1024, 32, 64)
+
+#        else:
+#            ft0, ft1, ft2, ft3, ft4, ft5 = ft1, ft2, ft3, ft4, ft5, ft6
 
         # if self.params.num_upsampling_blocks == 7 or \
         #    self.params.num_upsampling_blocks == 8:
@@ -151,10 +154,15 @@ class TSITGenerator(BaseNetwork):
         x = x + nft1 if self.params.additive_noise else x
         x = self.up_3(x, ft1) # (n, 64, 512, 1024)
 
-        x = self.up(x, size=self.params.img_size)
-        x = self.fadain_alpha(x, sft0, alpha=self.params.alpha) if not self.params.no_ss else x
-        x = x + nft0 if self.params.additive_noise else x
-        x = self.up_4(x, ft0) # (n, 64, 720, 1440)
+        if self.params.num_upsampling_blocks == 8:
+
+            x = self.up(x, size=self.params.img_size)
+            x = self.fadain_alpha(x, sft0, alpha=self.params.alpha) if not self.params.no_ss else x
+            x = x + nft0 if self.params.additive_noise else x
+            x = self.up_4(x, ft0) # (n, 64, 720, 1440)
+
+        else:
+            x = self.up(x, size=self.params.img_size)
 
         x = self.conv_img(F.leaky_relu(x, 2e-1))
         x = F.relu(x)

@@ -97,7 +97,7 @@ class Pix2PixModel():
         G_params = list(self.netG.parameters())
         if params.use_vae:
             G_params += list(self.netE.parameters())
-        if self.isTrain:
+        if self.isTrain and not params.no_gan_loss:
             D_params = list(self.netD.parameters())
 
         if params.no_TTUR:
@@ -108,14 +108,17 @@ class Pix2PixModel():
             G_lr, D_lr = params.lr / 2, params.lr * 2
 
         optimizer_G = torch.optim.Adam(G_params, lr=G_lr, betas=(beta1, beta2))
-        optimizer_D = torch.optim.Adam(D_params, lr=D_lr, betas=(beta1, beta2))
+        if self.isTrain and not params.no_gan_loss:
+            optimizer_D = torch.optim.Adam(D_params, lr=D_lr, betas=(beta1, beta2))
+        else:
+            optimizer_D = None
 
         return optimizer_G, optimizer_D
 
     
     def initialize_networks(self, params):
         netG = networks.define_G(params).to(self.device)
-        netD = networks.define_D(params).to(self.device) if self.isTrain else None
+        netD = networks.define_D(params).to(self.device) if self.isTrain and not params.no_gan_loss else None
         netE = networks.define_E(params).to(self.device) if params.use_vae else None
 
         return netG, netD, netE
@@ -130,15 +133,17 @@ class Pix2PixModel():
         if self.params.use_vae:
             G_losses['KLD'] = KLD_loss
 
-        if self.params.cat_inp:
-            pred_fake, pred_real = self.discriminate(fake_image, real_image, input_image)
-        else:
-            pred_fake, pred_real = self.discriminate(fake_image, real_image)
+        if not self.params.no_gan_loss:
+            if self.params.cat_inp:
+                pred_fake, pred_real = self.discriminate(fake_image, real_image, input_image)
+            else:
+                pred_fake, pred_real = self.discriminate(fake_image, real_image)
 
-        G_losses['GAN'] = self.criterionGAN(pred_fake, True,
-                                            for_discriminator=False)
+            G_losses['GAN'] = self.criterionGAN(pred_fake, True,
+                                                for_discriminator=False)
 
         if not self.params.no_ganFeat_loss:
+            assert not self.params.no_gan_loss, 'no_gan_loss must be False when using GAN_Feat_loss'
             num_D = len(pred_fake)
             GAN_Feat_loss = self.FloatTensor(1).fill_(0)
             for i in range(num_D):  # for each discriminator

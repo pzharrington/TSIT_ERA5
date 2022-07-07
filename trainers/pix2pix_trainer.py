@@ -5,11 +5,12 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 import torch.optim.lr_scheduler as lr_scheduler
+import torchvision.transforms.functional as TF
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.weighted_acc_rmse import weighted_acc_torch_channels, unlog_tp_torch
-from utils.spectra_metrics import unweighted_spectra_metrics_rfft  # , \
-#     weighted_spectra_metrics_fft_input
+from utils.spectra_metrics import spectra_metrics_rfft, \
+    spectra_metrics_fft_input
 from utils.viz import viz_fields, viz_spectra
 import numpy as np
 import matplotlib.pyplot as plt
@@ -54,6 +55,11 @@ class Pix2PixTrainer():
         self.log_to_screen = params.log_to_screen and self.world_rank==0
         self.log_to_wandb = params.log_to_wandb and self.world_rank==0
         params.name = args.config
+
+        # load climatology
+        self.tp_tm = torch.as_tensor(np.load(params.precip_time_means))
+        if self.tp_tm.shape != params.img_size:
+            self.tp_tm = TF.resize(self.tp_tm, params.img_size)
 
         self.device = torch.cuda.current_device()
         self.params = params
@@ -133,11 +139,15 @@ class Pix2PixTrainer():
         self.optimizerG, self.optimizerD = self.pix2pix_model.create_optimizers(self.params)
         # constant, then linear LR decay: chain schedules together
         constG = lr_scheduler.ConstantLR(self.optimizerG, factor=1., total_iters=self.params.niter)
-        constD = lr_scheduler.ConstantLR(self.optimizerD, factor=1., total_iters=self.params.niter)
         linearG = lr_scheduler.LinearLR(self.optimizerG, start_factor=1., end_factor=0., total_iters=self.params.niter_decay)
-        linearD = lr_scheduler.LinearLR(self.optimizerD, start_factor=1., end_factor=0., total_iters=self.params.niter_decay)
         self.schedulerG = lr_scheduler.SequentialLR(self.optimizerG, schedulers=[constG, linearG], milestones=[self.params.niter])
-        self.schedulerD = lr_scheduler.SequentialLR(self.optimizerD, schedulers=[constD, linearD], milestones=[self.params.niter])
+
+        if self.optimizerD is not None:
+            linearD = lr_scheduler.LinearLR(self.optimizerD, start_factor=1., end_factor=0., total_iters=self.params.niter_decay)
+            constD = lr_scheduler.ConstantLR(self.optimizerD, factor=1., total_iters=self.params.niter)
+            self.schedulerD = lr_scheduler.SequentialLR(self.optimizerD, schedulers=[constD, linearD], milestones=[self.params.niter])
+        else:
+            self.schedulerD = None
 
         if self.params.amp:
             self.grad_scaler = torch.cuda.amp.GradScaler()
@@ -169,7 +179,8 @@ class Pix2PixTrainer():
             tr_time = self.train_one_epoch()
             valid_time, fields, spectra = self.validate_one_epoch()
             self.schedulerG.step()
-            self.schedulerD.step()
+            if self.schedulerD is not None:
+                self.schedulerD.step()
 
             is_best = self.logs['acc'] >= best
             best = max(self.logs['acc'], best)
@@ -225,9 +236,16 @@ class Pix2PixTrainer():
             self.run_generator_one_step(data)
             g_time += time.time() - timer
             timer = time.time()
-            self.run_discriminator_one_step(data)
+            if not self.params.no_gan_loss:
+                self.run_discriminator_one_step(data)
+            else:
+                self.d_losses = {}
             d_time += time.time() - timer
-        
+
+            if self.params.DEBUG and (i % 375) == 0:
+                logging.info(f'Rank {self.world_rank} | B: {i+1}/{len(self.train_data_loader)} | '
+                             f'G: {self.g_losses} | D: {self.d_losses}')
+
         tr_time = time.time() - tr_start
 
         if self.log_to_screen: logging.info('Total=%f, G=%f, D=%f, data=%f, next=%f'%(tr_time, g_time, d_time, data_time, tr_time - (g_time+ d_time + data_time)))
@@ -242,7 +260,7 @@ class Pix2PixTrainer():
 
         return tr_time
 
-    
+
     def validate_one_epoch(self):
         self.pix2pix_model.set_eval()
         valid_start = time.time()
@@ -268,17 +286,21 @@ class Pix2PixTrainer():
                 timer = time.time()
                 gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
                 tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
-                acc.append(weighted_acc_torch_channels(gen_unlog, tar_unlog))
+                tp_tm = self.tp_tm.to(tar_unlog.device)
+                acc.append(weighted_acc_torch_channels(gen_unlog - tp_tm,
+                                                       tar_unlog - tp_tm))
                 acctime += time.time() - timer
                 timer = time.time()
-                spec_dict = unweighted_spectra_metrics_rfft(gen, data[1])
+                spec_dict = spectra_metrics_rfft(gen, data[1])
                 ffts.setdefault('pred', []).append(spec_dict.pop('pred_fft'))
                 ffts.setdefault('tar', []).append(spec_dict.pop('tar_fft'))
-                # weighted_spec_dict = weighted_spectra_metrics_fft_input(ffts['pred'][-1],
-                #                                                         ffts['tar'][-1])
+                weighted_spec_dict = spectra_metrics_fft_input(ffts['pred'][-1],
+                                                               ffts['tar'][-1],
+                                                               freq_weighting=True,
+                                                               lat_weighting=True)
                 for key, metric in spec_dict.items():
                     spec_metrics.setdefault(key, []).append(metric)
-                    # spec_metrics.setdefault('weighted_'+key, []).append(weighted_spec_dict[key])
+                    spec_metrics.setdefault('weighted_'+key, []).append(weighted_spec_dict[key])
                 spectime = time.time() - timer
                 preds.append(gen.detach())
                 targets.append(data[1].detach())
@@ -333,13 +355,15 @@ class Pix2PixTrainer():
         torch.save({'iters': self.iters, 'epoch': self.epoch, 
                     'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                     'optimizerG_state_dict': self.optimizerG.state_dict(), 'schedulerG_state_dict': self.schedulerG.state_dict(),
-                    'optimizerD_state_dict': self.optimizerD.state_dict(), 'schedulerD_state_dict': self.schedulerD.state_dict()},
+                    'optimizerD_state_dict': self.optimizerD.state_dict() if self.optimizerD is not None else None,
+                    'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None},
                    checkpoint_path)
         if is_best:
             torch.save({'iters': self.iters, 'epoch': self.epoch, 
                         'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                         'optimizerG_state_dict': self.optimizerG.state_dict(), 'schedulerG_state_dict': self.schedulerG.state_dict(),
-                        'optimizerD_state_dict': self.optimizerD.state_dict(), 'schedulerD_state_dict': self.schedulerD.state_dict()},
+                        'optimizerD_state_dict': self.optimizerD.state_dict() if self.optimizerD is not None else None,
+                        'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None},
                        checkpoint_path.replace('.tar', '_best.tar'))
 
     def restore_checkpoint(self, checkpoint_path):
@@ -353,9 +377,10 @@ class Pix2PixTrainer():
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch'] + 1
         self.optimizerG.load_state_dict(checkpoint['optimizerG_state_dict'])
-        self.optimizerD.load_state_dict(checkpoint['optimizerD_state_dict'])
         self.schedulerG.load_state_dict(checkpoint['schedulerG_state_dict'])
-        self.schedulerD.load_state_dict(checkpoint['schedulerD_state_dict'])
+        if not self.params.no_gan_loss:
+            self.optimizerD.load_state_dict(checkpoint['optimizerD_state_dict'])
+            self.schedulerD.load_state_dict(checkpoint['schedulerD_state_dict'])
 
     def run_generator_one_step(self, data):
         self.optimizerG.zero_grad()

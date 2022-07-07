@@ -16,27 +16,25 @@ class Stream(BaseNetwork):
         self.params = params
         self.ppad = self.params.use_periodic_padding
         self.StreamResnetBlock = StreamResnetBlockPeriodic if self.ppad else StreamResnetBlock
+
+        nf0 = params.ngf0
         nf = params.ngf
 
-        if nf == 32:
-            nf0 = 64
-        else:
-            nf0 = nf
+        self.res_0 = self.StreamResnetBlock(params.input_nc, 1 * nf0, params)  # 64-ch feature (default)
+        self.res_1 = self.StreamResnetBlock(1  * nf0, 2  * nf, params)   # 128-ch  feature
+        self.res_2 = self.StreamResnetBlock(2  * nf,  4  * nf, params)   # 256-ch  feature
+        self.res_3 = self.StreamResnetBlock(4  * nf,  8  * nf, params)   # 512-ch  feature
+        self.res_4 = self.StreamResnetBlock(8  * nf,  16 * nf, params)    # 1024-ch feature
+        self.res_5 = self.StreamResnetBlock(16 * nf,  16 * nf, params)    # 1024-ch feature
+        self.res_6 = self.StreamResnetBlock(16 * nf,  16 * nf, params)   # 1024-ch feature
+        self.res_7 = self.StreamResnetBlock(16 * nf,  16 * nf, params)   # 1024-ch feature
 
-        self.res_0 = self.StreamResnetBlock(params.input_nc, nf, params)  # 64-ch feature
-        self.res_1 = self.StreamResnetBlock(1 * nf, 2 * nf, params)   # 128-ch  feature
-        self.res_2 = self.StreamResnetBlock(2  * nf, 4  * nf, params)   # 256-ch  feature
-        self.res_3 = self.StreamResnetBlock(4  * nf, 8  * nf, params)   # 512-ch  feature
-        self.res_4 = self.StreamResnetBlock(8  * nf, 16 * nf, params)    # 1024-ch feature
-        self.res_5 = self.StreamResnetBlock(16 * nf, 16 * nf0, params)    # 1024-ch feature
-        self.res_6 = self.StreamResnetBlock(16 * nf0, 16 * nf0, params)   # 1024-ch feature
-        self.res_7 = self.StreamResnetBlock(16 * nf0, 16 * nf0, params) if params.num_upsampling_blocks == 8 else None   # 1024-ch feature
-        # self.res_8 = self.StreamResnetBlock(16 * nf, 16 * nf, params) if params.num_upsampling_blocks != 7 else None   # 1024-ch feature
 
     def down(self, input, size=None):
         if size is None:
             return F.interpolate(input, scale_factor=0.5)
         return F.interpolate(input, size=size)
+
 
     def forward(self, input):
         # assume that input shape is (n,c,256,512)
@@ -67,8 +65,8 @@ class Stream(BaseNetwork):
         x6 = self.down(x5)
         x6 = self.res_6(x6)    # (n,1024,4,8) # (n, 1024, 16, 32)
 
-        if self.params.num_upsampling_blocks == 7:
-            return [None, x0, x1, x2, x3, x4, x5, x6]
+        # if self.params.num_upsampling_blocks == 7:
+        #     return [None, x0, x1, x2, x3, x4, x5, x6]
 
         x7 = self.down(x6)
         x7 = self.res_7(x7)    # (n,1024,2,4) # (n, 1024, 8, 16)
