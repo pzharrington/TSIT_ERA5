@@ -22,7 +22,7 @@ base: &base
   conttime: False
   normalization: 'zscore'
   add_grid: False
-  gridtype: 'linear'
+  gridtype: 'linear' # or 'sinusoidal'
   gridalong: 'x' # 'x', 'y', or 'both'
   N_grid_channels: 1
 
@@ -265,21 +265,35 @@ bs64_l1:
   num_upsampling_blocks: 8
   norm_G: 'fadebatch3x3'
 
+bs64_l1_up7:
+  <<: *base
+  # train params
+  batch_size: 64
+  # arch params
+  use_l1_loss: True
+  img_size: [720, 1440]
+  num_upsampling_blocks: 7
+  norm_G: 'fadebatch3x3'
+  # hyperparams
+  lambda_l1: 1.
+
 bs64_l1_only:
   <<: *base
   # train params
   batch_size: 64
+  add_grid: True
+  input_nc: 8
   # arch params
   ngf0: 64
   img_size: [720, 1440]
   num_upsampling_blocks: 8
   use_l1_loss: True
-  lambda_l1: 1.
   no_gan_loss: True
   no_ganFeat_loss: True
   use_periodic_padding: True
   norm_G: 'fadebatch3x3'
   # hyperparams
+  lambda_l1: 1.
   # logging
   log_to_wandb: True
   save_checkpoint: True
@@ -288,17 +302,105 @@ bs64_l1_only_spec:
   <<: *base
   # train params
   batch_size: 64
+  add_grid: True
+  input_nc: 8
   # arch params
   ngf0: 64
   img_size: [720, 1440]
   num_upsampling_blocks: 8
   use_l1_loss: True
-  lambda_l1: 1.
   no_gan_loss: True
   no_ganFeat_loss: True
   use_periodic_padding: True
   norm_G: 'spectralfadebatch3x3'
   # hyperparams
+  lambda_l1: 1.
+  # logging
+  log_to_wandb: True
+  save_checkpoint: True
+
+bs64_l1_only_spec_smallLR:
+  <<: *base
+  # train params
+  batch_size: 64
+  add_grid: True
+  input_nc: 8
+  # arch params
+  ngf0: 64
+  img_size: [720, 1440]
+  num_upsampling_blocks: 8
+  use_l1_loss: True
+  no_gan_loss: True
+  no_ganFeat_loss: True
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  # hyperparams
+  lr: 2E-5
+  lambda_l1: 1.
+  # logging
+  log_to_wandb: True
+  save_checkpoint: True
+
+bs64_l1_only_spec_bigLR:
+  <<: *base
+  # train params
+  batch_size: 64
+  add_grid: True
+  input_nc: 8
+  # arch params
+  ngf0: 64
+  img_size: [720, 1440]
+  num_upsampling_blocks: 8
+  use_l1_loss: True
+  no_gan_loss: True
+  no_ganFeat_loss: True
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  # hyperparams
+  lr: 2E-3
+  lambda_l1: 1.
+  # logging
+  log_to_wandb: True
+  save_checkpoint: True
+
+bs64_l1_only_up7:
+  <<: *base
+  # train params
+  batch_size: 64
+  add_grid: True
+  input_nc: 8
+  # arch params
+  ngf0: 64
+  img_size: [720, 1440]
+  num_upsampling_blocks: 7
+  use_l1_loss: True
+  no_gan_loss: True
+  no_ganFeat_loss: True
+  use_periodic_padding: True
+  norm_G: 'fadebatch3x3'
+  # hyperparams
+  lambda_l1: 1.
+  # logging
+  log_to_wandb: True
+  save_checkpoint: True
+
+bs64_l1_only_spec_up7:
+  <<: *base
+  # train params
+  batch_size: 64
+  add_grid: True
+  input_nc: 8
+  # arch params
+  ngf0: 64
+  img_size: [720, 1440]
+  num_upsampling_blocks: 7
+  use_l1_loss: True
+  no_gan_loss: True
+  no_ganFeat_loss: True
+  use_periodic_padding: True
+  norm_G: 'spectralfadebatch3x3'
+  # hyperparams
+  lambda_l1: 1.
   # logging
   log_to_wandb: True
   save_checkpoint: True
@@ -310,6 +412,9 @@ debug:
   batch_size: 48
   num_data_workers: 12 # batch size // 4
   add_grid: True
+  gridtype: 'linear'
+  N_grid_channels: 1
+  input_nc: 8
   # arch params
   num_D: 4
   ngf0: 64
