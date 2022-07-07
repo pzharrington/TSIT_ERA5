@@ -194,9 +194,9 @@ class Pix2PixTrainer():
                 fig = viz_fields(fields)
                 self.logs['viz'] = wandb.Image(fig)
                 plt.close(fig)
-                # fig = viz_spectra(spectra)
-                # self.logs['viz_spec'] = wandb.Image(fig)
-                # plt.close(fig)
+                fig = viz_spectra(spectra)
+                self.logs['viz_spec'] = wandb.Image(fig)
+                plt.close(fig)
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
                 wandb.log(self.logs, step=self.epoch+1)
 
@@ -284,8 +284,8 @@ class Pix2PixTrainer():
                 gen = self.generate_validation(data)
                 g_time += time.time() - timer
                 timer = time.time()
-                gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
-                tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
+                gen_unlog = unlog_tp_torch(gen[:, 0:1], self.params.precip_eps)
+                tar_unlog = unlog_tp_torch(data[1][:, 0:1], self.params.precip_eps)
                 tp_tm = self.tp_tm.to(tar_unlog.device)
                 acc.append(weighted_acc_torch_channels(gen_unlog - tp_tm,
                                                        tar_unlog - tp_tm))

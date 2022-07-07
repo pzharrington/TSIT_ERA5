@@ -9,7 +9,7 @@ def viz_fields(flist):
     pred = pred[0]
     tar = tar[0]
     sc = tar.max()
-    f = plt.figure(figsize=(18,6))    
+    f = plt.figure(figsize=(18,6))
     plt.subplot(1,3,1)
     plt.imshow(pred, cmap='Blues', norm=Normalize(0., sc))
     plt.title('Generated')
@@ -19,39 +19,31 @@ def viz_fields(flist):
     plt.subplot(1,3,3)
     plt.imshow(pred - tar, cmap='bwr')
     plt.title('Error')
-    
+
     plt.tight_layout()
     return f
 
+
 def viz_spectra(spectra):
     pred_fft, tar_fft = spectra
-    f = plt.figure(figsize=(15,9))
-    pred, tar = np.log1p(np.abs(pred_fft)), np.log1p(np.abs(tar_fft))
-    # pred, tar = np.abs(pred_fft), np.abs(tar_fft)
-    cmap = 'Reds'
-    sc = tar.max()
-    plt.subplot(2,3,1)
-    plt.imshow(pred, cmap=cmap, norm=Normalize(0., sc))
-    plt.title('Generated log1p(amplitude)')
-    plt.subplot(2,3,2)
-    plt.imshow(tar, cmap=cmap)
-    plt.title('Truth log1p(amplitude)', norm=Normalize(0., sc))
-    plt.subplot(2,3,3)
-    # TODO: errors in unlogged space
-    plt.imshow(pred - tar, cmap='bwr')
-    plt.title('Error')
-    
-    pred, tar = np.angle(pred_fft), np.angle(tar_fft)
-    sc_min, sc_max = tar.min(), tar.max()
-    plt.subplot(2,3,4)
-    plt.imshow(pred, cmap='bwr', norm=Normalize(sc_min, sc_max))
-    plt.title('Generated phase')
-    plt.subplot(2,3,5)
-    plt.imshow(tar, cmap='bwr', norm=Normalize(sc_min, sc_max))
-    plt.title('Truth phase')
-    plt.subplot(2,3,6)
-    plt.imshow(pred - tar, cmap='bwr')
-    plt.title('Error')
 
-    plt.tight_layout()
+    pred, tar = np.abs(pred_fft)[0], np.abs(tar_fft)[0]
+
+    wavenum = np.arange(start=0, stop=pred_fft.shape[-1])
+
+    plt_params = {
+        # 'afno': [afno, 'r-'],
+        'tsit': [pred, 'g-'],
+        'era5': [tar, 'k--'],
+    }
+
+    f = plt.figure(figsize=(10, 5))
+
+    for label, (amp, fmt) in plt_params.items():
+        plt.semilogy(wavenum, np.mean(amp, axis=-2), fmt, label=label)
+
+    plt.xlabel('wave number')
+    plt.ylabel('amplitude')
+    plt.legend()
+
     return f
