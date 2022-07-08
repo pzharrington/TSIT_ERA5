@@ -35,7 +35,10 @@ class GetDataset(Dataset):
     self.train = train
     self.dt = params.dt
     self.n_history = params.n_history
-    self.in_channels = np.array(params.in_channels)
+    if not train and params.afno_validate:
+      self.in_channels = np.arange(params.afno_n_channels)
+    else:
+      self.in_channels = np.array(params.in_channels)
     self.out_channels = np.array(params.out_channels)
     self.n_in_channels = len(self.in_channels)
     self.n_out_channels = len(self.out_channels)

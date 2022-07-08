@@ -1,6 +1,7 @@
 import os, sys, time
 import torch
 from models.pix2pix_model import Pix2PixModel
+from models.afnonet import AFNONet, PrecipNet, load_afno
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
@@ -54,6 +55,8 @@ class Pix2PixTrainer():
             params.log()
         self.log_to_screen = params.log_to_screen and self.world_rank==0
         self.log_to_wandb = params.log_to_wandb and self.world_rank==0
+        self.afno_validate = params.afno_validate and self.world_rank==0
+        params.afno_validate = self.afno_validate
         params.name = args.config
 
         # load climatology
@@ -149,9 +152,26 @@ class Pix2PixTrainer():
         else:
             self.schedulerD = None
 
+        if self.afno_validate:
+            # TODO: need to keep AFNO on CPU when not in use?
+
+            # backbone model
+            afno_wind = AFNONet(self.params)
+            self.afno_wind = load_afno(afno_wind,
+                                       self.params,
+                                       self.params.afno_model_wind_path) # ,
+                                       # map_location=torch.device('cpu'))
+
+            # precip model
+            afno_precip = PrecipNet(self.params, backbone=self.afno_wind)
+            self.afno_precip = load_afno(afno_precip,
+                                         self.params,
+                                         self.params.afno_model_precip_path)# ,
+                                         # map_location=torch.device('cpu'))
+
         if self.params.amp:
             self.grad_scaler = torch.cuda.amp.GradScaler()
-        
+
         self.iters = 0
         self.startEpoch = 0
 
@@ -275,9 +295,17 @@ class Pix2PixTrainer():
         acctime = 0.
         g_time = 0.
         data_time = 0.
-        with torch.no_grad():
+        # with torch.no_grad():
+        with torch.inference_mode():
             for idx, (image, target) in enumerate(self.valid_data_loader):
                 timer = time.time()
+                inp = image
+                if self.afno_validate:
+                    ch_idxs = self.params.in_channels
+                    if self.params.add_grid:
+                        n_grid = self.params.N_grid_channels
+                        ch_idxs = ch_idxs + list(range(-n_grid, -1))
+                    image = image[:, ch_idxs]
                 data = (image.to(self.device), target.to(self.device))
                 data_time += time.time() - timer
                 timer = time.time()
@@ -304,7 +332,7 @@ class Pix2PixTrainer():
                 spectime = time.time() - timer
                 preds.append(gen.detach())
                 targets.append(data[1].detach())
-                inps.append(image.detach())
+                inps.append(inp.detach())
 
         timer = time.time()
         preds = torch.cat(preds)
@@ -334,11 +362,25 @@ class Pix2PixTrainer():
             acc = torch.cat([x for x in acc_global])
         '''
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
+
+        # generate sample output from AFNO for viz
+        afno_precip = None
+        afno_precip_fft = None
+        if self.afno_validate:
+            with torch.inference_mode():
+                samp = inps[sample_idx:(sample_idx + 1), :self.params.afno_n_channels].to(self.device)
+                afno_wind = self.afno_wind(samp)
+                afno_precip = self.afno_precip(afno_wind).detach()[0]
+                afno_precip_fft = torch.fft.rfft(afno_precip, dim=-1, norm='ortho').detach().cpu().numpy()
+                afno_precip = afno_precip.detach().cpu().numpy()
+
         fields = [preds[sample_idx].detach().cpu().numpy(),
                   targets[sample_idx].detach().cpu().numpy(),
-                  inps[sample_idx].detach().cpu().numpy()]
+                  inps[sample_idx].detach().cpu().numpy(),
+                  afno_precip]
         spectra = [pred_ffts[sample_idx].detach().cpu().numpy(),
-                   target_ffts[sample_idx].detach().cpu().numpy()]
+                   target_ffts[sample_idx].detach().cpu().numpy(),
+                   afno_precip_fft]
 
         valid_time = time.time() - valid_start
         self.logs.update({'acc': acc.mean().item()})

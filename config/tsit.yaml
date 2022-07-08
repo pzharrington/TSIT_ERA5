@@ -26,6 +26,14 @@ base: &base
   gridalong: 'x' # 'x', 'y', or 'both'
   N_grid_channels: 1
 
+  # AFNO
+  afno_validate: True
+  afno_n_channels: 20
+  afno_model_precip_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper_precip/0/training_checkpoints/best_ckpt.tar'
+  afno_model_wind_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper/1/training_checkpoints/best_ckpt.tar'
+  afno_patch_size: 8
+  afno_num_blocks: 8
+
   # model types
   model: 'pix2pix' # which model to use
   norm_G: 'spectralfadebatch3x3' # instance normalization or batch normalization for generator

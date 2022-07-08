@@ -1,41 +1,51 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize
-from utils.weighted_acc_rmse import unlog_tp
 
 
 def viz_fields(flist):
-    pred, tar, _ = flist
+    pred, tar, inp, afno = flist
     pred = pred[0]
     tar = tar[0]
+    afno = afno[0]
     sc = tar.max()
-    f = plt.figure(figsize=(18,6))
-    plt.subplot(1,3,1)
-    plt.imshow(pred, cmap='Blues', norm=Normalize(0., sc))
-    plt.title('Generated')
-    plt.subplot(1,3,2)
+    f = plt.figure(figsize=(18,15))
+
+    plt.subplot(2,2,1)
     plt.imshow(tar, cmap='Blues', norm=Normalize(0., sc))
     plt.title('Truth')
-    plt.subplot(1,3,3)
-    plt.imshow(pred - tar, cmap='bwr')
-    plt.title('Error')
+
+    if afno is not None:
+        plt.subplot(2,2,2)
+        plt.imshow(afno, cmap='Blues', norm=Normalize(0., sc))
+        plt.title('AFNO')
+
+    plt.subplot(2,2,3)
+    plt.imshow(pred, cmap='Blues', norm=Normalize(0., sc))
+    plt.title('TSIT')
+
+    plt.subplot(2,2,4)
+    plt.imshow((pred - tar) / (tar + 1), cmap='bwr')
+    plt.title('TSIT relative error')
 
     plt.tight_layout()
     return f
 
 
 def viz_spectra(spectra):
-    pred_fft, tar_fft = spectra
-
-    pred, tar = np.abs(pred_fft)[0], np.abs(tar_fft)[0]
-
-    wavenum = np.arange(start=0, stop=pred_fft.shape[-1])
+    pred_fft, tar_fft, afno_fft = spectra
+    pred, tar, afno = np.abs(pred_fft)[0], np.abs(tar_fft)[0], None
 
     plt_params = {
-        # 'afno': [afno, 'r-'],
         'tsit': [pred, 'g-'],
         'era5': [tar, 'k--'],
     }
+
+    if afno_fft is not None:
+        afno = np.abs(afno_fft)[0]
+        plt_params['afno'] = [afno, 'r-']
+
+    wavenum = np.arange(start=0, stop=pred_fft.shape[-1])
 
     f = plt.figure(figsize=(10, 5))
 
