@@ -293,6 +293,7 @@ bs64_l1_only:
   use_periodic_padding: True
   norm_G: 'fadebatch3x3'
   # hyperparams
+  lr: 1E-4
   lambda_l1: 1.
   # logging
   log_to_wandb: True
@@ -341,7 +342,7 @@ bs64_l1_only_spec_smallLR:
   log_to_wandb: True
   save_checkpoint: True
 
-bs64_l1_only_spec_bigLR:
+bs64_l1_only_spec_bigLR_v2:
   <<: *base
   # train params
   batch_size: 64
@@ -357,7 +358,7 @@ bs64_l1_only_spec_bigLR:
   use_periodic_padding: True
   norm_G: 'spectralfadebatch3x3'
   # hyperparams
-  lr: 2E-3
+  lr: 4E-4
   lambda_l1: 1.
   # logging
   log_to_wandb: True
