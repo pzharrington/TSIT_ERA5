@@ -30,10 +30,10 @@ class Pix2PixTrainer():
 
         self.sweep_id = args.sweep_id
         self.root_dir = args.root_dir
+        self.sub_dir = args.sub_dir
         self.config = args.config
-        self.group = args.group
-        if self.group is not None:
-            self.root_dir = os.path.join(self.root_dir, self.group)
+        if self.sub_dir is not None:
+            self.root_dir = os.path.join(self.root_dir, self.sub_dir)
 
         params.amp = args.amp
         self.world_size = 1
