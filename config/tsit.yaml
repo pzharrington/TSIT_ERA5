@@ -28,7 +28,7 @@ base: &base
 
   # AFNO
   afno_validate: True
-  afno_n_channels: 20
+  afno_wind_N_channels: 20
   afno_model_precip_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper_precip/0/training_checkpoints/best_ckpt.tar'
   afno_model_wind_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper/1/training_checkpoints/best_ckpt.tar'
   afno_patch_size: 8
@@ -43,7 +43,7 @@ base: &base
 
   # input/output sizes
   batch_size: 1 # input batch size
-  img_size: [512, 1024] # w,h of input image
+  img_size: [720, 1440] # w,h of input image
   input_nc: 7 # number of input label classes (aka num input channels)
   output_nc: 1 # number of output image channels
 
@@ -285,6 +285,22 @@ bs64_l1_up7:
   # hyperparams
   lambda_l1: 1.
 
+bs64_l1_only_sweep:
+  <<: *base
+  # train params
+  batch_size: 64
+  add_grid: True
+  input_nc: 8
+  # arch params
+  use_l1_loss: True
+  no_gan_loss: True
+  no_ganFeat_loss: True
+  # hyperparams
+  lambda_l1: 1.
+  # logging
+  log_to_wandb: True
+  save_checkpoint: True
+
 bs64_l1_only:
   <<: *base
   # train params
@@ -418,8 +434,8 @@ debug:
   <<: *base
   DEBUG: True
   # train params
-  batch_size: 48
-  num_data_workers: 12 # batch size // 4
+  batch_size: 32
+  num_data_workers: 8 # batch size // 4
   add_grid: True
   gridtype: 'linear'
   N_grid_channels: 1
@@ -428,16 +444,17 @@ debug:
   num_D: 4
   ngf0: 64
   img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  cat_inp: False
+  num_upsampling_blocks: 7
+  cat_inp: True
   use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
+  no_gan_loss: False
+  no_ganFeat_loss: False
   lambda_feat: 0.1
   use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  # norm_G: 'fadebatch3x3'
+  # norm_G: 'spectralfadebatch3x3'
+  norm_G: 'fadebatch3x3'
   # hyperparams
+  lr: 2E-4
   lambda_l1: 1.
   # logging
   log_to_wandb: True
