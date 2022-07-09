@@ -36,7 +36,7 @@ class GetDataset(Dataset):
     self.dt = params.dt
     self.n_history = params.n_history
     if not train and params.afno_validate:
-      self.in_channels = np.arange(params.afno_n_channels)
+      self.in_channels = np.arange(params.afno_wind_N_channels)
     else:
       self.in_channels = np.array(params.in_channels)
     self.out_channels = np.array(params.out_channels)

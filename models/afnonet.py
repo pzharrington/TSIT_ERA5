@@ -152,8 +152,8 @@ class PrecipNet(nn.Module):
         super().__init__()
         self.params = params
         self.patch_size = (params.afno_patch_size, params.afno_patch_size)
-        self.in_chans = len(params.afno_in_channels)
-        self.out_chans = len(params.afno_out_channels)
+        self.in_chans = params.N_in_channels
+        self.out_chans = params.N_out_channels
         self.backbone = backbone
         self.ppad = PeriodicPad2d(1)
         self.conv = nn.Conv2d(self.out_chans, self.out_chans, kernel_size=3, stride=1, padding=0, bias=True)
@@ -187,8 +187,8 @@ class AFNONet(nn.Module):
         self.params = params
         self.img_size = img_size
         self.patch_size = (params.afno_patch_size, params.afno_patch_size)
-        self.in_chans = len(params.afno_in_channels)
-        self.out_chans = len(params.afno_out_channels)
+        self.in_chans = params.N_in_channels
+        self.out_chans = params.N_out_channels
         self.num_features = self.embed_dim = embed_dim
         self.num_blocks = params.afno_num_blocks
         norm_layer = partial(nn.LayerNorm, eps=1e-6)

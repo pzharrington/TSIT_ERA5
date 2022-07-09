@@ -9,7 +9,7 @@ def viz_fields(flist):
     tar = tar[0]
     afno = afno[0]
     sc = tar.max()
-    f = plt.figure(figsize=(18,15))
+    f = plt.figure(figsize=(18,12))
 
     plt.subplot(2,2,1)
     plt.imshow(tar, cmap='Blues', norm=Normalize(0., sc))

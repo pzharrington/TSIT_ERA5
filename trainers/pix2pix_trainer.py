@@ -61,7 +61,8 @@ class Pix2PixTrainer():
 
         # load climatology
         self.tp_tm = torch.as_tensor(np.load(params.precip_time_means))
-        if self.tp_tm.shape != params.img_size:
+        if self.tp_tm.shape[-2] != params.img_size[0] or \
+           self.tp_tm.shape[-1] != params.img_size[1]:
             self.tp_tm = TF.resize(self.tp_tm, params.img_size)
 
         self.device = torch.cuda.current_device()
@@ -156,18 +157,24 @@ class Pix2PixTrainer():
             # TODO: need to keep AFNO on CPU when not in use?
 
             # backbone model
-            afno_wind = AFNONet(self.params)
-            self.afno_wind = load_afno(afno_wind,
-                                       self.params,
-                                       self.params.afno_model_wind_path) # ,
+            self.params.N_in_channels = self.params.afno_wind_N_channels
+            self.params.N_out_channels = self.params.afno_wind_N_channels
+            afno_wind = AFNONet(self.params).to(self.device)
+            afno_wind = load_afno(afno_wind,
+                                  self.params,
+                                  self.params.afno_model_wind_path) # ,
                                        # map_location=torch.device('cpu'))
+            self.afno_wind = afno_wind.to(self.device)
 
             # precip model
-            afno_precip = PrecipNet(self.params, backbone=self.afno_wind)
-            self.afno_precip = load_afno(afno_precip,
-                                         self.params,
-                                         self.params.afno_model_precip_path)# ,
-                                         # map_location=torch.device('cpu'))
+            self.params.N_out_channels = len(self.params.out_channels)
+            afno_precip = AFNONet(self.params).to(self.device)
+            afno_precip = PrecipNet(self.params, backbone=afno_precip).to(self.device)
+            afno_precip = load_afno(afno_precip,
+                                    self.params,
+                                    self.params.afno_model_precip_path) # ,
+                                    # map_location=torch.device('cpu'))
+            self.afno_precip = afno_precip.to(self.device)
 
         if self.params.amp:
             self.grad_scaler = torch.cuda.amp.GradScaler()
@@ -218,7 +225,8 @@ class Pix2PixTrainer():
                 self.logs['viz_spec'] = wandb.Image(fig)
                 plt.close(fig)
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
-                wandb.log(self.logs, step=self.epoch+1)
+                self.logs['epoch'] = self.epoch + 1
+                wandb.log(self.logs)
 
             if self.log_to_screen:
                 logging.info('Time taken for epoch {} is {} sec'.format(self.epoch+1, time.time()-start))
@@ -304,7 +312,7 @@ class Pix2PixTrainer():
                     ch_idxs = self.params.in_channels
                     if self.params.add_grid:
                         n_grid = self.params.N_grid_channels
-                        ch_idxs = ch_idxs + list(range(-n_grid, -1))
+                        ch_idxs = ch_idxs + list(range(-n_grid, 0))
                     image = image[:, ch_idxs]
                 data = (image.to(self.device), target.to(self.device))
                 data_time += time.time() - timer
@@ -368,7 +376,8 @@ class Pix2PixTrainer():
         afno_precip_fft = None
         if self.afno_validate:
             with torch.inference_mode():
-                samp = inps[sample_idx:(sample_idx + 1), :self.params.afno_n_channels].to(self.device)
+                n_wind = self.params.afno_wind_N_channels
+                samp = inps[sample_idx:(sample_idx + 1), :n_wind].to(self.device)
                 afno_wind = self.afno_wind(samp)
                 afno_precip = self.afno_precip(afno_wind).detach()[0]
                 afno_precip_fft = torch.fft.rfft(afno_precip, dim=-1, norm='ortho').detach().cpu().numpy()
