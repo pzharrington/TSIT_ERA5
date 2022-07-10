@@ -13,21 +13,21 @@ base: &base
   global_stds_path:  '/pscratch/sd/s/shas1693/data/era5/global_stds.npy'
   precip: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation'
   precip_time_means: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation/time_means.npy'
-  precip_eps: 1e-5 # epsilon for normalizing precip log(1+tp/eps)
+  precip_eps: !!float 1e-5 # epsilon for normalizing precip log(1+tp/eps)
   dt: 1 # timestep length
   n_history: 0 # history input
   crop_size_x: None # crop height of input
   crop_size_y: None # crop width of input
-  roll: False 
-  conttime: False
+  roll: !!bool False
+  conttime: !!bool False
   normalization: 'zscore'
-  add_grid: False
+  add_grid: !!bool False
   gridtype: 'linear' # or 'sinusoidal'
   gridalong: 'x' # 'x', 'y', or 'both'
   N_grid_channels: 1
 
   # AFNO
-  afno_validate: True
+  afno_validate: !!bool True
   afno_wind_N_channels: 20
   afno_model_precip_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper_precip/0/training_checkpoints/best_ckpt.tar'
   afno_model_wind_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper/1/training_checkpoints/best_ckpt.tar'
@@ -48,414 +48,116 @@ base: &base
   output_nc: 1 # number of output image channels
 
   # for generator
-  no_gan_loss: False
+  no_gan_loss: !!bool False
   netG: 'tsit' # selects model architecture for generator (tsit | pix2pixhd)
   ngf0: 64 # number of gen filters in first conv layer (l = 0)
   ngf: 64 # num. gen filters for layer l is 2**l * ngf
   init_type: 'xavier' # network initialization [normal|xavier|kaiming|orthogonal]
-  init_variance: 0.02 # variance of the initialization distribution
+  init_variance: !!float 0.02 # variance of the initialization distribution
   z_dim: 256 # dimension of the latent z vector
-  alpha: 1. # The parameter that controls the degree of stylization (between 0 and 1)
-  no_ss: True # discard the style stream (not needed for standard SIS)
-  downsamp: True # Start from downsampled content rather than random noise vector.
+  alpha: !!float 1. # The parameter that controls the degree of stylization (between 0 and 1)
+  no_ss: !!bool True # discard the style stream (not needed for standard SIS)
+  downsamp: !!bool True # Start from downsampled content rather than random noise vector.
   num_upsampling_blocks: 7 # number of upsampling blocks (aka spatial scales) in generator
-  use_periodic_padding: True # whether or not to use periodic padding along horizontal direction
-  additive_noise: False # whether or not to use additional additive noise at each G stage
+  use_periodic_padding: !!bool True # whether or not to use periodic padding along horizontal direction
+  additive_noise: !!bool False # whether or not to use additional additive noise at each G stage
 
   # VAE setup
   nef: 16 # number of encoder filters in the first conv layer
-  use_vae: False # enable training with an image encoder.
+  use_vae: !!bool False # enable training with an image encoder.
 
   # for training
   niter: 20 # number of iter at starting learning rate. This is NOT the total #epochs. Totla #epochs is niter + niter_decay
   niter_decay: 20 # number of iters to linearly decay learning rate to zero
   optimizer: 'adam' # optimizer type 
-  beta1: 0.5 # momentum term of adam
-  beta2: 0.999 # momentum term of adam
-  lr: 2E-4 # initial learning rate for adam
+  beta1: !!float 0.5 # momentum term of adam
+  beta2: !!float 0.999 # momentum term of adam
+  lr: !!float 2E-4 # initial learning rate for adam
   D_steps_per_G: 1 # number of discriminator iterations per generator iterations
-  use_spec_loss: False # if specified, use spectral loss term forG 
+  use_spec_loss: !!bool False # if specified, use spectral loss term forG
   lambda_spec: 1.  # spectral loss term weight
-  use_l1_loss: False # if specified, use l1 loss term forG 
+  use_l1_loss: !!bool False # if specified, use l1 loss term forG
   lambda_l1: 1.  # l1 loss term weight
 
   # for discriminators
   ndf: 64 # number of discrim filters in first conv layer
-  lambda_feat: 0.5 # weight for feature matching loss
-  no_ganFeat_loss: False # if specified, do *not* use discriminator feature matching loss
+  lambda_feat: !!float 0.5 # weight for feature matching loss
+  no_ganFeat_loss: !!bool False # if specified, do *not* use discriminator feature matching loss
   gan_mode: 'hinge' # GAN loss function [ls|original|hinge]
   netD: 'multiscale' #  selects model architecture for discriminator multiscale|nlayer
   num_D: 2 # number of discriminators in multiscale-discriminator setup
   n_layers_D: 4 # nubmer of layers in each discriminator
-  no_TTUR: True # if specified, do not use two-timescale update rule training scheme
-  lambda_kld: 0.05 # KL divergence term weight
-  cat_inp: False # concat input image to discriminator
+  no_TTUR: !!bool True # if specified, do not use two-timescale update rule training scheme
+  lambda_kld: !!float 0.05 # KL divergence term weight
+  cat_inp: !!bool False # concat input image to discriminator
 
   # Logging / Weights & Biases
   entity: 'weatherbenching'
   project: 'ERA5_generative'
-  log_to_wandb: True
-  log_to_screen: True
-  save_checkpoint: True
+  log_to_wandb: !!bool True
+  log_to_screen: !!bool True
+  save_checkpoint: !!bool True
 
   # debugging
-  DEBUG: False
+  DEBUG: !!bool False
 
-
-bs64_nopad:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: False
-  norm_G: 'fadebatch3x3'
-
-bs64_spec:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-
-bs64:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-
-bs64_nopad_spec:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: False
-  norm_G: 'spectralfadebatch3x3'
-
-bs64_cat:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  cat_inp: True
-
-bs64_cat_l1:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-
-bs64_cat_l1_0p75:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-  lambda_l1: 0.75
-
-bs64_cat_l1_0p5:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-  lambda_l1: 0.5
-
-bs64_cat_l1_0p25:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-  lambda_l1: 0.25
-
-bs64_cat_spec:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  cat_inp: True
-
-bs64_cat_spec_l1:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-
-bs64_cat_spec_l1_0p75:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-  lambda_l1: 0.75
-
-bs64_cat_spec_l1_0p5:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-  lambda_l1: 0.5
-
-bs64_cat_spec_l1_0p25:
-  <<: *base
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  cat_inp: True
-  use_l1_loss: True
-  lambda_l1: 0.25
-
-bs64_ngf032_l1:
-  <<: *base
-  ngf0: 32
-  num_upsampling_blocks: 8
-  img_size: [720, 1440]
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  use_l1_loss: True
-
-bs64_ngf032_l1_spec:
-  <<: *base
-  ngf0: 32
-  num_upsampling_blocks: 8
-  img_size: [720, 1440]
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  use_l1_loss: True
-
-bs64_ngf032_l1_nofeat:
-  <<: *base
-  ngf0: 32
-  no_ganFeat_loss: True
-  num_upsampling_blocks: 8
-  img_size: [720, 1440]
-  batch_size: 64
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  use_l1_loss: True
-
-bs64_ngf048_l1_nofeat:
-  <<: *base
-  # train params
-  batch_size: 64
-  # arch params
-  ngf0: 48
-  use_l1_loss: True
-  no_ganFeat_loss: True
-  img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  norm_G: 'fadebatch3x3'
-
-bs64_l1_spec:
-  <<: *base
-  # train params
-  batch_size: 64
-  # arch params
-  use_l1_loss: True
-  img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  norm_G: 'spectralfadebatch3x3'
-
-bs64_l1:
-  <<: *base
-  # train params
-  batch_size: 64
-  # arch params
-  use_l1_loss: True
-  img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  norm_G: 'fadebatch3x3'
-
-bs64_l1_up7:
-  <<: *base
-  # train params
-  batch_size: 64
-  # arch params
-  use_l1_loss: True
-  img_size: [720, 1440]
-  num_upsampling_blocks: 7
-  norm_G: 'fadebatch3x3'
-  # hyperparams
-  lambda_l1: 1.
-
+# non-GAN baseline
 bs64_l1_only_sweep:
   <<: *base
   # train params
   batch_size: 64
-  add_grid: True
-  input_nc: 8
+  add_grid: !!bool True
+  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  input_nc: 21
   # arch params
-  use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
+  use_l1_loss: !!bool True
+  no_gan_loss: !!bool True
+  no_ganFeat_loss: !!bool True
   # hyperparams
-  lambda_l1: 1.
-  # logging
-  log_to_wandb: True
-  save_checkpoint: True
+  lambda_l1: !!float 1.
 
-bs64_l1_only:
+# GAN
+bs64_ganFeat_sweep:
   <<: *base
-  # train params
+  ## train params
   batch_size: 64
-  add_grid: True
-  input_nc: 8
-  # arch params
-  ngf0: 64
-  img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
-  use_periodic_padding: True
+  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  input_nc: 20
+  ## arch params
   norm_G: 'fadebatch3x3'
-  # hyperparams
-  lr: 1E-4
-  lambda_l1: 1.
-  # logging
-  log_to_wandb: True
-  save_checkpoint: True
 
-bs64_l1_only_spec:
+bs64_l1_loss_sweep:
   <<: *base
   # train params
   batch_size: 64
-  add_grid: True
-  input_nc: 8
-  # arch params
-  ngf0: 64
-  img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  # hyperparams
-  lambda_l1: 1.
-  # logging
-  log_to_wandb: True
-  save_checkpoint: True
-
-bs64_l1_only_spec_smallLR:
-  <<: *base
-  # train params
-  batch_size: 64
-  add_grid: True
-  input_nc: 8
-  # arch params
-  ngf0: 64
-  img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  # hyperparams
-  lr: 2E-5
-  lambda_l1: 1.
-  # logging
-  log_to_wandb: True
-  save_checkpoint: True
-
-bs64_l1_only_spec_bigLR_v2:
-  <<: *base
-  # train params
-  batch_size: 64
-  add_grid: True
-  input_nc: 8
-  # arch params
-  ngf0: 64
-  img_size: [720, 1440]
-  num_upsampling_blocks: 8
-  use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  # hyperparams
-  lr: 4E-4
-  lambda_l1: 1.
-  # logging
-  log_to_wandb: True
-  save_checkpoint: True
-
-bs64_l1_only_up7:
-  <<: *base
-  # train params
-  batch_size: 64
-  add_grid: True
-  input_nc: 8
-  # arch params
-  ngf0: 64
-  img_size: [720, 1440]
-  num_upsampling_blocks: 7
-  use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
-  use_periodic_padding: True
-  norm_G: 'fadebatch3x3'
-  # hyperparams
-  lambda_l1: 1.
-  # logging
-  log_to_wandb: True
-  save_checkpoint: True
-
-bs64_l1_only_spec_up7:
-  <<: *base
-  # train params
-  batch_size: 64
-  add_grid: True
-  input_nc: 8
-  # arch params
-  ngf0: 64
-  img_size: [720, 1440]
-  num_upsampling_blocks: 7
-  use_l1_loss: True
-  no_gan_loss: True
-  no_ganFeat_loss: True
-  use_periodic_padding: True
-  norm_G: 'spectralfadebatch3x3'
-  # hyperparams
-  lambda_l1: 1.
-  # logging
-  log_to_wandb: True
-  save_checkpoint: True
+  use_l1_loss: !!bool True
 
 debug:
   <<: *base
-  DEBUG: True
-  # train params
+  DEBUG: !!bool True
+  ## train params
   batch_size: 32
   num_data_workers: 8 # batch size // 4
-  add_grid: True
-  gridtype: 'linear'
-  N_grid_channels: 1
-  input_nc: 8
-  # arch params
+  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  input_nc: 20
+  # add_grid: !!bool False
+  # gridtype: 'linear'
+  # N_grid_channels: 1
+  ## arch params
   num_D: 4
   ngf0: 64
-  img_size: [720, 1440]
-  num_upsampling_blocks: 7
-  cat_inp: True
-  use_l1_loss: True
-  no_gan_loss: False
-  no_ganFeat_loss: False
-  lambda_feat: 0.1
-  use_periodic_padding: True
+  # num_upsampling_blocks: 8
+  cat_inp: !!bool False
+  use_l1_loss: !!bool False
+  no_gan_loss: !!bool False
+  no_ganFeat_loss: !!bool False
+  use_periodic_padding: !!bool True
   # norm_G: 'spectralfadebatch3x3'
   norm_G: 'fadebatch3x3'
-  # hyperparams
-  lr: 2E-4
-  lambda_l1: 1.
+  ## hyperparams
+  # lr: 2E-4
+  # lambda_l1: 1.
+  # lambda_feat: 0.1
   # logging
-  log_to_wandb: True
-  save_checkpoint: False
+  log_to_wandb: !!bool True
+  save_checkpoint: !!bool False
