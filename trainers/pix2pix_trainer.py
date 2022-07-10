@@ -55,8 +55,7 @@ class Pix2PixTrainer():
             params.log()
         self.log_to_screen = params.log_to_screen and self.world_rank==0
         self.log_to_wandb = params.log_to_wandb and self.world_rank==0
-        self.afno_validate = params.afno_validate and self.world_rank==0
-        params.afno_validate = self.afno_validate
+        self.afno_validate = params.afno_validate
         params.name = args.config
 
         # load climatology
@@ -77,14 +76,16 @@ class Pix2PixTrainer():
 
     def build(self):
 
+        jid = os.environ['SLURM_JOBID']
+
         # init wandb
         if self.log_to_wandb:
             if self.sweep_id:
-                jid = os.environ['SLURM_JOBID']
                 wandb.init()
                 hpo_config = wandb.config
                 self.params.update_params(hpo_config)
-                logging.info('HPO sweep %s, job ID %d, trial params:'%(self.sweep_id, jid))
+                wandb.config.update(self.params.params)
+                logging.info('HPO sweep %s, job ID %s, trial params:'%(self.sweep_id, jid))
                 logging.info(self.params.log())
             else:
                 exp_dir = os.path.join(*[self.root_dir, 'expts', self.config])
@@ -102,6 +103,7 @@ class Pix2PixTrainer():
             exp_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config, jid])
         else:
             exp_dir = os.path.join(*[self.root_dir, 'expts', self.config])
+
         if self.world_rank==0:
             if not os.path.isdir(exp_dir):
                 os.makedirs(exp_dir)
@@ -116,7 +118,7 @@ class Pix2PixTrainer():
             comm = MPI.COMM_WORLD
             rank = comm.Get_rank()
             assert self.world_rank == rank
-            if rank != 0: 
+            if rank != 0:
                 self.params = None
             # Broadcast sweep config -- after here params should be finalized
             self.params = comm.bcast(self.params, root=0)
@@ -153,8 +155,7 @@ class Pix2PixTrainer():
         else:
             self.schedulerD = None
 
-        if self.afno_validate:
-            # TODO: need to keep AFNO on CPU when not in use?
+        if self.afno_validate and self.world_rank == 0:
 
             # backbone model
             self.params.N_in_channels = self.params.afno_wind_N_channels
@@ -270,6 +271,9 @@ class Pix2PixTrainer():
                 self.d_losses = {}
             d_time += time.time() - timer
 
+            if self.params.amp:
+                self.grad_scaler.update()
+
             if self.params.DEBUG and (i % 375) == 0:
                 logging.info(f'Rank {self.world_rank} | B: {i+1}/{len(self.train_data_loader)} | '
                              f'G: {self.g_losses} | D: {self.d_losses}')
@@ -374,7 +378,7 @@ class Pix2PixTrainer():
         # generate sample output from AFNO for viz
         afno_precip = None
         afno_precip_fft = None
-        if self.afno_validate:
+        if self.afno_validate and self.world_rank == 0:
             with torch.inference_mode():
                 n_wind = self.params.afno_wind_N_channels
                 samp = inps[sample_idx:(sample_idx + 1), :n_wind].to(self.device)
@@ -401,6 +405,7 @@ class Pix2PixTrainer():
 
 
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
+        # TODO: checkpoint grad_scaler state?
         if not model:
             model = self.pix2pix_model
         torch.save({'iters': self.iters, 'epoch': self.epoch, 
@@ -441,13 +446,13 @@ class Pix2PixTrainer():
 
             self.g_losses = {k: v.item() for k,v in g_losses.items()}
             self.generated = generated
-            if self.params.amp:
-                self.grad_scaler.scale(g_loss).backward()
-                self.grad_scaler.step(self.optimizerG)
-                self.grad_scaler.update()
-            else:
-                g_loss.backward()
-                self.optimizerG.step()
+        if self.params.amp:
+            self.grad_scaler.scale(g_loss).backward()
+            self.grad_scaler.step(self.optimizerG)
+            # self.grad_scaler.update()
+        else:
+            g_loss.backward()
+            self.optimizerG.step()
 
     def run_discriminator_one_step(self, data):
         self.optimizerD.zero_grad()
@@ -455,13 +460,13 @@ class Pix2PixTrainer():
             d_losses = self.pix2pix_model.compute_discriminator_loss(data[0], data[1])
             d_loss = sum(d_losses.values()).mean()
             self.d_losses = {k: v.item() for k,v in d_losses.items()}
-            if self.params.amp:
-                self.grad_scaler.scale(d_loss).backward()
-                self.grad_scaler.step(self.optimizerG)
-                self.grad_scaler.update()
-            else:
-                d_loss.backward()
-                self.optimizerD.step()
+        if self.params.amp:
+            self.grad_scaler.scale(d_loss).backward()
+            self.grad_scaler.step(self.optimizerD)
+            # self.grad_scaler.update()
+        else:
+            d_loss.backward()
+            self.optimizerD.step()
 
 
     def get_latest_generated(self):
