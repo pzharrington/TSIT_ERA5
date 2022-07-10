@@ -97,9 +97,12 @@ base: &base
   log_to_wandb: !!bool True
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
+  log_steps_to_screen: !!bool False
+  log_every_n_steps: 400
 
   # debugging
   DEBUG: !!bool False
+
 
 # non-GAN baseline
 bs64_l1_only_sweep:
@@ -115,6 +118,8 @@ bs64_l1_only_sweep:
   no_ganFeat_loss: !!bool True
   # hyperparams
   lambda_l1: !!float 1.
+  # logging
+  log_steps_to_screen: !!bool True
 
 # GAN
 bs64_ganFeat_sweep:
@@ -125,12 +130,16 @@ bs64_ganFeat_sweep:
   input_nc: 20
   ## arch params
   norm_G: 'fadebatch3x3'
+# logging
+  log_steps_to_screen: !!bool True
 
 bs64_l1_loss_sweep:
   <<: *base
   # train params
   batch_size: 64
   use_l1_loss: !!bool True
+# logging
+  log_steps_to_screen: !!bool True
 
 debug:
   <<: *base
@@ -160,4 +169,5 @@ debug:
   # lambda_feat: 0.1
   # logging
   log_to_wandb: !!bool True
+  log_steps_to_screen: !!bool True
   save_checkpoint: !!bool False

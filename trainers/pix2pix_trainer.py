@@ -274,7 +274,7 @@ class Pix2PixTrainer():
             if self.params.amp:
                 self.grad_scaler.update()
 
-            if self.params.DEBUG and (i % 375) == 0:
+            if self.params.log_steps_to_screen and (i % self.params.log_every_n_steps) == 0:
                 logging.info(f'Rank {self.world_rank} | B: {i+1}/{len(self.train_data_loader)} | '
                              f'G: {self.g_losses} | D: {self.d_losses}')
 
@@ -355,7 +355,8 @@ class Pix2PixTrainer():
         inps = torch.cat(inps)
         for key, metric in spec_metrics.items():
             spec_metrics[key] = torch.cat(metric).mean().item()
-        '''
+        """
+        # TODO: debug all_gather of acc_global
         # All-gather for full validation set currently OOMs
         if self.world_size > 1:
             # gather the sizes
@@ -372,7 +373,7 @@ class Pix2PixTrainer():
             acc_global = [torch.zeros(int(sz_loc.item()), nc).float().to(self.device) for sz_loc in sz_gather]
             dist.all_gather(acc_global, acc)
             acc = torch.cat([x for x in acc_global])
-        '''
+        """
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
 
         # generate sample output from AFNO for viz

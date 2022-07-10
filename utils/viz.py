@@ -25,7 +25,7 @@ def viz_fields(flist):
     plt.title('TSIT')
 
     plt.subplot(2,2,4)
-    plt.imshow((pred - tar) / (tar + 1), cmap='bwr')
+    plt.imshow((pred - tar) / np.abs(tar + 1), cmap='bwr')
     plt.title('TSIT relative error')
 
     plt.tight_layout()
