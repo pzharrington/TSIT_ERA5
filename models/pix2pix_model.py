@@ -37,6 +37,13 @@ class Pix2PixModel():
             self.criterionFeat = torch.nn.L1Loss()
             if params.use_vae:
                 self.KLDLoss = networks.KLDLoss()
+            if params.use_ff_loss:
+                num_freq = (params.img_size[1] // 2) + 1
+                num_lat = params.img_size[0]
+                self.FFLoss = networks.FFLoss(num_freq, num_lat,
+                                              params.freq_weighting_ffl,
+                                              params.lat_weighting_ffl,
+                                              device=torch.device(self.device))
 
 
     def set_train(self):
@@ -157,6 +164,8 @@ class Pix2PixModel():
 
         if self.params.use_spec_loss:
             G_losses['Spec'] = self.compute_spec_loss(fake_image, real_image)
+        if self.params.use_ff_loss:
+            G_losses['FFL'] = self.params.lambda_ffl * self.FFLoss(fake_image, real_image)
         if self.params.use_l1_loss:
             G_losses['L1'] = self.params.lambda_l1*self.criterionFeat(fake_image, real_image)
 
@@ -193,7 +202,7 @@ class Pix2PixModel():
         true_fft = torch.fft.rfft2(style, norm='ortho')
         unweighted_loss = self.criterionFeat(torch.log1p(fake_fft.abs()), torch.log1p(true_fft.abs()))
         return unweighted_loss*self.params.lambda_spec
-        
+
 
     def generate_fake(self, input_image, real_image, compute_kld_loss=False):
         z = None

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils.spectra_metrics import fl_weights
 
 
 # Defines the GAN loss which uses either LSGAN or the regular GAN.
@@ -96,3 +97,70 @@ class GANLoss(nn.Module):
 class KLDLoss(nn.Module):
     def forward(self, mu, logvar):
         return -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+
+class FFLoss(nn.Module):
+
+    def __init__(self, num_freq: int, num_lat: int,
+                 freq_weighting: bool=True, lat_weighting: bool=True,
+                 clamp_weights: bool=True, min: float=0.1, max: float=1.,
+                 device: torch.device = torch.device('cpu')):
+        self.device = device
+        if freq_weighting or lat_weighting:
+            w = fl_weights(num_freq, num_lat,
+                           freq_weighting, lat_weighting,
+                           clamp_weights, min, max,
+                           self.device)
+            self.w = torch.stack([w, w], -1).to(self.device).detach()
+        else:
+            self.w = None
+
+    def __call__(self, pred, target,
+                 alpha: float=1.,
+                 log_matrix: bool=False,
+                 batch_matrix: bool=False):
+
+        pred_fft = torch.fft.rfft(pred, dim=-1, norm='ortho')
+        tar_fft = torch.fft.rfft(target, dim=-1, norm='ortho')
+
+        pred_freq = torch.stack([pred_fft.real, pred_fft.imag], -1)
+        tar_freq = torch.stack([tar_fft.real, tar_fft.imag], -1)
+
+        if self.w is None:
+            matrix_tmp = (pred_freq - tar_freq) ** 2
+        else:
+            if self.w.device != pred.device:
+                self.w = w.to(pred.device).detach()
+            w = self.w.clone().detach()
+            matrix_tmp = w * (pred_freq - tar_freq) ** 2
+
+        # if the matrix is calculated online: continuous, dynamic, based on
+        # current Euclidean distance
+        matrix_tmp = torch.sqrt(matrix_tmp[..., 0] + matrix_tmp[..., 1]) ** alpha
+
+        # whether to adjust the spectrum weight matrix by logarithm
+        if log_matrix:
+            matrix_tmp = torch.log(matrix_tmp + 1.0)
+
+        # whether to calculate the spectrum weight matrix using batch-based statistics
+        if batch_matrix:
+            matrix_tmp = matrix_tmp / matrix_tmp.max()
+        else:
+            matrix_tmp = matrix_tmp / matrix_tmp.max(-1).values.max(-1).values[:, :, None, None]
+
+        matrix_tmp[torch.isnan(matrix_tmp)] = 0.0
+        matrix_tmp = torch.clamp(matrix_tmp, min=0.0, max=1.0)
+        weight_matrix = matrix_tmp.clone().detach()
+
+        assert weight_matrix.min().item() >= 0. and weight_matrix.max().item() <= 1., (
+            'The values of spectrum weight matrix should be in the range [0, 1], '
+            'but got Min: %.10f Max: %.10f' % (weight_matrix.min().item(), weight_matrix.max().item()))
+
+        # frequency distance using (squared) Euclidean distance
+        tmp = (pred_freq - tar_freq) ** 2
+        freq_distance = tmp[..., 0] + tmp[..., 1]
+
+        # dynamic spectrum weighting (Hadamard product)
+        loss = weight_matrix * freq_distance
+        # return torch.mean(loss)
+        return loss.mean()

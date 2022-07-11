@@ -21,23 +21,26 @@ def acc_torch_channels(pred: torch.Tensor, target: torch.Tensor, weight: Optiona
     return result
 
 @torch.jit.script
-def freq_weights(num_freq: int) -> torch.Tensor:
-    freq_t = torch.arange(start=num_freq - 1, end=-1, step=-1)
+def freq_weights(num_freq: int, device: torch.device = torch.device('cpu')) -> torch.Tensor:
+    freq_t = torch.arange(start=num_freq - 1, end=-1, step=-1, device=device)
     lam = 1. / (num_freq / 10.)
     freq_weights = lam * torch.exp(-lam*freq_t)
     freq_weights = freq_weights / freq_weights.max()
     return torch.reshape(freq_weights, (1, 1, 1, -1))
 
 @torch.jit.script
-def fl_weights(num_freq: int, num_lat: int, freq_weighting: bool=False, lat_weighting: bool=False, clamp: bool=True) -> torch.Tensor:
+def fl_weights(num_freq: int, num_lat: int,
+               freq_weighting: bool=False, lat_weighting: bool=False,
+               clamp: bool=True, min: float=0., max: float=1.,
+               device: torch.device = torch.device('cpu')) -> torch.Tensor:
 
     if freq_weighting:
-        w = freq_weights(num_freq)
+        w = freq_weights(num_freq, device=device)
     else:
-        w = torch.ones(1, 1, 1, num_freq)
+        w = torch.ones(1, 1, 1, num_freq, device=device)
 
     if lat_weighting:
-        lat_t = torch.arange(start=0, end=num_lat)
+        lat_t = torch.arange(start=0, end=num_lat, device=device)
         s = torch.sum(torch.cos(3.1416/180. * lat(lat_t, num_lat)))
         lat_w = torch.reshape(latitude_weighting_factor_torch(lat_t, num_lat, s),
                               (1, 1, -1, 1))
@@ -50,7 +53,7 @@ def fl_weights(num_freq: int, num_lat: int, freq_weighting: bool=False, lat_weig
     w = w.expand(1, 1, num_lat, num_freq)
 
     if clamp:
-        w = torch.clamp(w, min=0., max=1.)
+        w = torch.clamp(w, min=min, max=max)
 
     return w
 
@@ -73,12 +76,12 @@ def ffl_torch(pred_fft: torch.Tensor, target_fft: torch.Tensor,
     # else:
 
     if weight is None:
-        weight = torch.ones_like(pred_freq)
+        w = torch.ones_like(pred_freq)
     else:
-        weight = torch.stack([weight, weight], -1)
+        w = torch.stack([weight, weight], -1)
 
     # if the matrix is calculated online: continuous, dynamic, based on current Euclidean distance
-    matrix_tmp = weight * (pred_freq - target_freq) ** 2
+    matrix_tmp = w * (pred_freq - target_freq) ** 2
     matrix_tmp = torch.sqrt(matrix_tmp[..., 0] + matrix_tmp[..., 1]) ** alpha
 
     # whether to adjust the spectrum weight matrix by logarithm
