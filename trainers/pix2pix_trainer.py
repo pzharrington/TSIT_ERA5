@@ -124,9 +124,10 @@ class Pix2PixTrainer():
             assert self.world_rank == rank
             if rank != 0:
                 self.params = None
-            # Broadcast sweep config -- after here params should be finalized
+            # Broadcast sweep config
             self.params = comm.bcast(self.params, root=0)
-            self.params.update_params({ 'afno_validate': self.afno_validate })
+        # -- after here params should be finalized
+        self.params.update_params({ 'afno_validate': self.afno_validate })
 
         if self.world_rank == 0:
             hparams = ruamelDict()
@@ -306,12 +307,14 @@ class Pix2PixTrainer():
         afno_preds = []
         acc = []
         afno_acc = []
-        ffts = {}
+        amps = {}
         spec_metrics = {}
-        inps = []
+        # inps = []
         n_grid = self.params.N_grid_channels
         n_wind = self.params.afno_wind_N_channels
         ch_idxs = self.params.in_channels
+        if self.params.add_grid:
+            ch_idxs = ch_idxs + list(range(-n_grid, 0))
         nc, iw ,ih = self.params.output_nc, self.params.img_size[0], self.params.img_size[1]
         loop = time.time()
         acctime = 0.
@@ -323,18 +326,19 @@ class Pix2PixTrainer():
         with torch.inference_mode():
             for idx, (image, target) in enumerate(self.valid_data_loader):
                 timer = time.time()
-                inp = image
 
                 if self.afno_validate:
-                    inp = inp.to(self.device)
-                    if self.params.add_grid:
-                        ch_idxs = ch_idxs + list(range(-n_grid, 0))
+                    inp = image.to(self.device)
                     image = image[:, ch_idxs]
+                else:
+                    assert image.shape[1] == self.params.input_nc, f'image.shape: {image.shape}'
+
                 data = (image.to(self.device), target.to(self.device))
 
                 data_time += time.time() - timer
                 timer = time.time()
                 gen = self.generate_validation(data)
+                assert gen.shape[1] == 1, f'gen.shape: {gen.shape}'
                 g_time += time.time() - timer
                 timer = time.time()
                 gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
@@ -345,12 +349,15 @@ class Pix2PixTrainer():
 
                 timer = time.time()
                 spec_dict = spectra_metrics_rfft(gen, data[1])
-                ffts.setdefault('tsit', []).append(spec_dict.pop('pred_fft'))
-                ffts.setdefault('era5', []).append(spec_dict.pop('tar_fft'))
-                weighted_spec_dict = spectra_metrics_fft_input(ffts['tsit'][-1],
-                                                               ffts['era5'][-1],
+                amps.setdefault('tsit', []).append(spec_dict.pop('pred_fft'))
+                amps.setdefault('era5', []).append(spec_dict.pop('tar_fft'))
+                weighted_spec_dict = spectra_metrics_fft_input(amps['tsit'][-1],
+                                                               amps['era5'][-1],
                                                                freq_weighting=True,
                                                                lat_weighting=True)
+                # mean fft across latitude
+                amps['tsit'][-1] = amps['tsit'][-1][:, 0].abs().mean(dim=-2).detach().cpu()
+                amps['era5'][-1] = amps['era5'][-1][:, 0].abs().mean(dim=-2).detach().cpu()
                 for key, metric in spec_dict.items():
                     spec_metrics.setdefault(key, []).append(metric)
                     spec_metrics.setdefault('weighted_'+key, []).append(weighted_spec_dict[key])
@@ -359,22 +366,24 @@ class Pix2PixTrainer():
                 timer = time.time()
                 if self.afno_validate:
                     afno_pred = self.afno_precip(self.afno_wind(inp[:, :n_wind]))
-                    afno_preds.append(afno_pred)
-                    ffts.setdefault('afno', []).append(torch.fft.rfft(afno_pred, dim=-1, norm='ortho'))
+                    afno_preds.append(afno_pred.detach().cpu())
+                    amps.setdefault('afno', []).append(
+                        torch.fft.rfft(afno_pred, dim=-1, norm='ortho')[:, 0].abs().mean(dim=-2).detach().cpu()
+                    )
                     afno_unlog = unlog_tp_torch(afno_pred, self.params.precip_eps)
                     afno_acc.append(weighted_acc_torch_channels(afno_unlog - self.tp_tm,
                                                                 tar_unlog - self.tp_tm))
                 afnotime += time.time() - timer
 
-                preds.append(gen.detach())
-                targets.append(data[1].detach())
-                inps.append(inp.detach())
+                preds.append(gen.detach().cpu())
+                targets.append(data[1].detach().cpu())
+                # inps.append(inp.detach().cpu())
 
         timer = time.time()
         preds = torch.cat(preds)
         targets = torch.cat(targets)
         acc = torch.cat(acc)
-        inps = torch.cat(inps)
+        # inps = torch.cat(inps)
         for key, metric in spec_metrics.items():
             spec_metrics[key] = torch.cat(metric).mean().item()
 
@@ -410,20 +419,19 @@ class Pix2PixTrainer():
 
         fields = [preds[sample_idx].detach().cpu().numpy(),
                   targets[sample_idx].detach().cpu().numpy(),
-                  inps[sample_idx].detach().cpu().numpy(),
+                  # inps[sample_idx].detach().cpu().numpy(),
                   afno_samp]
 
         spectra_mean = {}
         spectra_stderr = {}
 
         # summarize spectra
-        for key, ffts in ffts.items():
-            # take mean across latitudes
-            amps = torch.cat(ffts[: 0]).abs().mean(dim=-2)
+        for key, amp in amps.items():
+            amp = torch.cat(amp)
             # calc mean and standard error across validation obs
-            std_mean = amps.std_mean(dim=0)
+            std_mean = torch.std_mean(amp, dim=0)
             spectra_mean[key] = std_mean[1].detach().cpu().numpy()
-            spectra_stderr[key] = std_mean[0].detach().cpu().numpy() / np.sqrt(ffts.shape[0])
+            spectra_stderr[key] = std_mean[0].detach().cpu().numpy() / np.sqrt(amp.shape[0])
 
         spectra = [spectra_mean, spectra_stderr]
 

@@ -4,7 +4,7 @@ from matplotlib.colors import Normalize
 
 
 def viz_fields(flist):
-    pred, tar, inp, afno = flist
+    pred, tar, afno = flist
     pred = pred[0]
     tar = tar[0]
     afno = afno[0]
