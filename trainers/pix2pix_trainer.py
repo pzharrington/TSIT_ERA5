@@ -55,16 +55,20 @@ class Pix2PixTrainer():
             params.log()
         self.log_to_screen = params.log_to_screen and self.world_rank==0
         self.log_to_wandb = params.log_to_wandb and self.world_rank==0
-        self.afno_validate = params.afno_validate
+        self.afno_validate = params.afno_validate and self.world_rank==0
         params.name = args.config
 
+        self.device = torch.cuda.current_device()
+
         # load climatology
-        self.tp_tm = torch.as_tensor(np.load(params.precip_time_means))
+        self.tp_tm = torch.as_tensor(np.load(params.precip_time_means)).to(self.device)
         if self.tp_tm.shape[-2] != params.img_size[0] or \
            self.tp_tm.shape[-1] != params.img_size[1]:
+            old_shape = self.tp_tm
             self.tp_tm = TF.resize(self.tp_tm, params.img_size)
+            if self.log_to_screen:
+                logging.info(f'Resized precip means from {old_shape} to {self.tp_tm.shape}')
 
-        self.device = torch.cuda.current_device()
         self.params = params
 
 
@@ -122,6 +126,7 @@ class Pix2PixTrainer():
                 self.params = None
             # Broadcast sweep config -- after here params should be finalized
             self.params = comm.bcast(self.params, root=0)
+            self.params.update_params({ 'afno_validate': self.afno_validate })
 
         if self.world_rank == 0:
             hparams = ruamelDict()
@@ -155,7 +160,7 @@ class Pix2PixTrainer():
         else:
             self.schedulerD = None
 
-        if self.afno_validate and self.world_rank == 0:
+        if self.afno_validate:
 
             # backbone model
             self.params.N_in_channels = self.params.afno_wind_N_channels
@@ -298,50 +303,69 @@ class Pix2PixTrainer():
         valid_start = time.time()
         preds = []
         targets = []
+        afno_preds = []
         acc = []
+        afno_acc = []
         ffts = {}
         spec_metrics = {}
         inps = []
+        n_grid = self.params.N_grid_channels
+        n_wind = self.params.afno_wind_N_channels
+        ch_idxs = self.params.in_channels
         nc, iw ,ih = self.params.output_nc, self.params.img_size[0], self.params.img_size[1]
         loop = time.time()
         acctime = 0.
         g_time = 0.
         data_time = 0.
+        spectime = 0.
+        afnotime = 0.
         # with torch.no_grad():
         with torch.inference_mode():
             for idx, (image, target) in enumerate(self.valid_data_loader):
                 timer = time.time()
                 inp = image
+
                 if self.afno_validate:
-                    ch_idxs = self.params.in_channels
+                    inp = inp.to(self.device)
                     if self.params.add_grid:
-                        n_grid = self.params.N_grid_channels
                         ch_idxs = ch_idxs + list(range(-n_grid, 0))
                     image = image[:, ch_idxs]
                 data = (image.to(self.device), target.to(self.device))
+
                 data_time += time.time() - timer
                 timer = time.time()
                 gen = self.generate_validation(data)
                 g_time += time.time() - timer
                 timer = time.time()
-                gen_unlog = unlog_tp_torch(gen[:, 0:1], self.params.precip_eps)
-                tar_unlog = unlog_tp_torch(data[1][:, 0:1], self.params.precip_eps)
-                tp_tm = self.tp_tm.to(tar_unlog.device)
-                acc.append(weighted_acc_torch_channels(gen_unlog - tp_tm,
-                                                       tar_unlog - tp_tm))
+                gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
+                tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
+                acc.append(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
+                                                       tar_unlog - self.tp_tm))
                 acctime += time.time() - timer
+
                 timer = time.time()
                 spec_dict = spectra_metrics_rfft(gen, data[1])
-                ffts.setdefault('pred', []).append(spec_dict.pop('pred_fft'))
-                ffts.setdefault('tar', []).append(spec_dict.pop('tar_fft'))
-                weighted_spec_dict = spectra_metrics_fft_input(ffts['pred'][-1],
-                                                               ffts['tar'][-1],
+                ffts.setdefault('tsit', []).append(spec_dict.pop('pred_fft'))
+                ffts.setdefault('era5', []).append(spec_dict.pop('tar_fft'))
+                weighted_spec_dict = spectra_metrics_fft_input(ffts['tsit'][-1],
+                                                               ffts['era5'][-1],
                                                                freq_weighting=True,
                                                                lat_weighting=True)
                 for key, metric in spec_dict.items():
                     spec_metrics.setdefault(key, []).append(metric)
                     spec_metrics.setdefault('weighted_'+key, []).append(weighted_spec_dict[key])
-                spectime = time.time() - timer
+                spectime += time.time() - timer
+
+                timer = time.time()
+                if self.afno_validate:
+                    afno_pred = self.afno_precip(self.afno_wind(inp[:, :n_wind]))
+                    afno_preds.append(afno_pred)
+                    ffts.setdefault('afno', []).append(torch.fft.rfft(afno_pred, dim=-1, norm='ortho'))
+                    afno_unlog = unlog_tp_torch(afno_pred, self.params.precip_eps)
+                    afno_acc.append(weighted_acc_torch_channels(afno_unlog - self.tp_tm,
+                                                                tar_unlog - self.tp_tm))
+                afnotime += time.time() - timer
+
                 preds.append(gen.detach())
                 targets.append(data[1].detach())
                 inps.append(inp.detach())
@@ -349,12 +373,15 @@ class Pix2PixTrainer():
         timer = time.time()
         preds = torch.cat(preds)
         targets = torch.cat(targets)
-        pred_ffts = torch.cat(ffts['pred'])
-        target_ffts = torch.cat(ffts['tar'])
         acc = torch.cat(acc)
         inps = torch.cat(inps)
         for key, metric in spec_metrics.items():
             spec_metrics[key] = torch.cat(metric).mean().item()
+
+        if self.afno_validate:
+            afno_preds = torch.cat(afno_preds)
+            afno_acc = torch.cat(afno_acc)
+
         """
         # TODO: debug all_gather of acc_global
         # All-gather for full validation set currently OOMs
@@ -376,31 +403,37 @@ class Pix2PixTrainer():
         """
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
 
-        # generate sample output from AFNO for viz
-        afno_precip = None
-        afno_precip_fft = None
-        if self.afno_validate and self.world_rank == 0:
-            with torch.inference_mode():
-                n_wind = self.params.afno_wind_N_channels
-                samp = inps[sample_idx:(sample_idx + 1), :n_wind].to(self.device)
-                afno_wind = self.afno_wind(samp)
-                afno_precip = self.afno_precip(afno_wind).detach()[0]
-                afno_precip_fft = torch.fft.rfft(afno_precip, dim=-1, norm='ortho').detach().cpu().numpy()
-                afno_precip = afno_precip.detach().cpu().numpy()
+        if self.afno_validate:
+            afno_samp = afno_preds[sample_idx].detach().cpu().numpy()
+        else:
+            afno_samp = None
 
         fields = [preds[sample_idx].detach().cpu().numpy(),
                   targets[sample_idx].detach().cpu().numpy(),
                   inps[sample_idx].detach().cpu().numpy(),
-                  afno_precip]
-        spectra = [pred_ffts[sample_idx].detach().cpu().numpy(),
-                   target_ffts[sample_idx].detach().cpu().numpy(),
-                   afno_precip_fft]
+                  afno_samp]
+
+        spectra_mean = {}
+        spectra_stderr = {}
+
+        # summarize spectra
+        for key, ffts in ffts.items():
+            # take mean across latitudes
+            amps = torch.cat(ffts[: 0]).abs().mean(dim=-2)
+            # calc mean and standard error across validation obs
+            std_mean = amps.std_mean(dim=0)
+            spectra_mean[key] = std_mean[1].detach().cpu().numpy()
+            spectra_stderr[key] = std_mean[0].detach().cpu().numpy() / np.sqrt(ffts.shape[0])
+
+        spectra = [spectra_mean, spectra_stderr]
 
         valid_time = time.time() - valid_start
         self.logs.update({'acc': acc.mean().item()})
+        if self.afno_validate:
+            self.logs.update({'acc_afno': afno_acc.mean().item()})
         self.logs.update(spec_metrics)
         agg = time.time() - timer 
-        if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, agg, valid_time - (g_time+ data_time + acctime + spectime + agg)))
+        if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ data_time + acctime + spectime + agg)))
 
         return valid_time, fields, spectra
 

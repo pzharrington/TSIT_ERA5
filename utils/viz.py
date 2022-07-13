@@ -33,24 +33,23 @@ def viz_fields(flist):
 
 
 def viz_spectra(spectra):
-    pred_fft, tar_fft, afno_fft = spectra
-    pred, tar, afno = np.abs(pred_fft)[0], np.abs(tar_fft)[0], None
+    spec_mean, spec_stderr = spectra
 
-    plt_params = {
-        'tsit': [pred, 'g-'],
-        'era5': [tar, 'k--'],
+    plt_fmt = {
+        'tsit': 'g-',
+        'era5': 'k--',
+        'afno': 'r-',
     }
-
-    if afno_fft is not None:
-        afno = np.abs(afno_fft)[0]
-        plt_params['afno'] = [afno, 'r-']
-
-    wavenum = np.arange(start=0, stop=pred_fft.shape[-1])
 
     f = plt.figure(figsize=(10, 5))
 
-    for label, (amp, fmt) in plt_params.items():
-        plt.semilogy(wavenum, np.mean(amp, axis=-2), fmt, label=label)
+    for key in spec_mean.keys():
+        mean = spec_mean[key]
+        stderr = spec_stderr[key]
+        wavenum = np.arange(start=0, stop=mean.shape[-1])
+        plt.semilogy(wavenum, mean, plt_fmt[key], label=key)
+        plt.fill_between(wavenum, mean - stderr, mean + stderr,
+                         color=plt_fmt[key][0], alpha=0.2)
 
     plt.xlabel('wave number')
     plt.ylabel('amplitude')
