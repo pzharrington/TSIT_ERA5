@@ -9,7 +9,8 @@ import torch.optim.lr_scheduler as lr_scheduler
 import torchvision.transforms.functional as TF
 import wandb
 from utils.data_loader_multifiles import get_data_loader
-from utils.weighted_acc_rmse import weighted_acc_torch_channels, unlog_tp_torch
+from utils.weighted_acc_rmse import weighted_acc_torch_channels, \
+    weighted_rmse_torch_channels, unlog_tp_torch
 from utils.spectra_metrics import spectra_metrics_rfft, \
     spectra_metrics_fft_input
 from utils.viz import viz_fields, viz_spectra
@@ -99,8 +100,8 @@ class Pix2PixTrainer():
                 self.params.experiment_dir = os.path.abspath(exp_dir)
                 self.params.checkpoint_path = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
                 self.params.resuming = True if os.path.isfile(self.params.checkpoint_path) else False
-                wandb.init(config=self.params.params, name=self.params.name, project=self.params.project, 
-                           entity=self.params.entity, resume=self.params.resuming)
+                wandb.init(config=self.params.params, name=self.params.name, project=self.params.project,
+                           entity=self.params.entity, resume=self.params.resuming, dir=exp_dir)
 
         # setup output dir
         if self.sweep_id:
@@ -241,6 +242,7 @@ class Pix2PixTrainer():
                 logging.info('G losses = '+str(self.g_losses))
                 logging.info('D losses = '+str(self.d_losses))
                 logging.info('ACC = %f'%self.logs['acc'])
+                logging.info('RMSE = %f'%self.logs['rmse'])
                 logging.info('RMSE amp = %f'%self.logs['rmse_amp'])
                 logging.info('RMSE phase = %f'%self.logs['rmse_phase'])
                 logging.info('FFL = %f'%self.logs['ffl'])
@@ -306,7 +308,9 @@ class Pix2PixTrainer():
         targets = []
         afno_preds = []
         acc = []
+        rmse = []
         afno_acc = []
+        afno_rmse = []
         amps = {}
         spec_metrics = {}
         # inps = []
@@ -345,6 +349,7 @@ class Pix2PixTrainer():
                 tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
                 acc.append(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
                                                        tar_unlog - self.tp_tm))
+                rmse.append(weighted_rmse_torch_channels(gen_unlog, tar_unlog))
                 acctime += time.time() - timer
 
                 timer = time.time()
@@ -373,6 +378,7 @@ class Pix2PixTrainer():
                     afno_unlog = unlog_tp_torch(afno_pred, self.params.precip_eps)
                     afno_acc.append(weighted_acc_torch_channels(afno_unlog - self.tp_tm,
                                                                 tar_unlog - self.tp_tm))
+                    afno_rmse.append(weighted_rmse_torch_channels(afno_unlog, tar_unlog))
                 afnotime += time.time() - timer
 
                 preds.append(gen.detach().cpu())
@@ -383,6 +389,7 @@ class Pix2PixTrainer():
         preds = torch.cat(preds)
         targets = torch.cat(targets)
         acc = torch.cat(acc)
+        rmse = torch.cat(rmse)
         # inps = torch.cat(inps)
         for key, metric in spec_metrics.items():
             spec_metrics[key] = torch.cat(metric).mean().item()
@@ -390,6 +397,7 @@ class Pix2PixTrainer():
         if self.afno_validate:
             afno_preds = torch.cat(afno_preds)
             afno_acc = torch.cat(afno_acc)
+            afno_rmse = torch.cat(afno_rmse)
 
         """
         # TODO: debug all_gather of acc_global
@@ -423,7 +431,7 @@ class Pix2PixTrainer():
                   afno_samp]
 
         spectra_mean = {}
-        spectra_stderr = {}
+        spectra_std = {}
 
         # summarize spectra
         for key, amp in amps.items():
@@ -431,14 +439,16 @@ class Pix2PixTrainer():
             # calc mean and standard error across validation obs
             std_mean = torch.std_mean(amp, dim=0)
             spectra_mean[key] = std_mean[1].detach().cpu().numpy()
-            spectra_stderr[key] = std_mean[0].detach().cpu().numpy() / np.sqrt(amp.shape[0])
+            spectra_std[key] = std_mean[0].detach().cpu().numpy() # / np.sqrt(amp.shape[0])
 
-        spectra = [spectra_mean, spectra_stderr]
+        spectra = [spectra_mean, spectra_std]
 
         valid_time = time.time() - valid_start
         self.logs.update({'acc': acc.mean().item()})
+        self.logs.update({'rmse': rmse.mean().item()})
         if self.afno_validate:
             self.logs.update({'acc_afno': afno_acc.mean().item()})
+            self.logs.update({'rmse_afno': afno_rmse.mean().item()})
         self.logs.update(spec_metrics)
         agg = time.time() - timer 
         if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ data_time + acctime + spectime + agg)))
