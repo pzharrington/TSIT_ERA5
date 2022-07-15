@@ -99,6 +99,7 @@ base: &base
   entity: 'weatherbenching'
   project: 'ERA5_generative'
   log_to_wandb: !!bool True
+  resuming: !!bool False
   log_to_screen: !!bool True
   save_checkpoint: !!bool True
   log_steps_to_screen: !!bool False
@@ -114,49 +115,50 @@ base: &base
 
 bs64_l1_only_sweep:
   <<: *base
-  # train params
+  ## train params
   batch_size: 64
   add_grid: !!bool True
   in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
   input_nc: 21
-  # arch params
+  ## arch params
   use_l1_loss: !!bool True
   no_gan_loss: !!bool True
   no_ganFeat_loss: !!bool True
-  # hyperparams
+  ## hyperparams
   lambda_l1: !!float 1.
-  # logging
+  ## logging
   log_steps_to_screen: !!bool True
 
 bs64_l1_only:
   <<: *base
-  # train params
+  ## train params
   batch_size: 64
   add_grid: !!bool True
   in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
   input_nc: 21
-  # arch params
+  ## arch params
   use_l1_loss: !!bool True
   no_gan_loss: !!bool True
   no_ganFeat_loss: !!bool True
   norm_G: 'spectralfadebatch3x3'
   num_upsampling_blocks: 8
   use_periodic_padding: !!bool True
-  # hyperparams
+  ## hyperparams
   lr: 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
-  # logging
+  ## logging
   log_steps_to_screen: !!bool True
+  resuming: !!bool True
 
 bs64_l1_ffl_sweep:
   <<: *base
-  # train params
+  ## train params
   batch_size: 64
   add_grid: !!bool True
   in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
   input_nc: 21
-  # arch params
+  ## arch params
   use_l1_loss: !!bool True
   use_ff_loss: !!bool True
   no_gan_loss: !!bool True
@@ -164,20 +166,18 @@ bs64_l1_ffl_sweep:
   norm_G: 'fadebatch3x3'
   num_upsampling_blocks: 7
   use_periodic_padding: !!bool False
-  # hyperparams
-  # lambda_l1: !!float 1.
-  # lambda_ffl: !!float 1.
-  # logging
+  ## hyperparams
+  ## logging
   log_steps_to_screen: !!bool True
 
 bs64_l1_ffl:
   <<: *base
-  # train params
+  ## train params
   batch_size: 64
   add_grid: !!bool True
   in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
   input_nc: 21
-  # arch params
+  ## arch params
   use_l1_loss: !!bool True
   use_ff_loss: !!bool True
   no_gan_loss: !!bool True
@@ -185,23 +185,24 @@ bs64_l1_ffl:
   norm_G: 'fadebatch3x3'
   num_upsampling_blocks: 7
   use_periodic_padding: !!bool False
-  # hyperparams
+  ## hyperparams
   lr: 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   lambda_l1: !!float 1.
   lambda_ffl: !!float 1.
-  # logging
+  ## logging
   log_steps_to_screen: !!bool True
+  resuming: !!bool True
 
 bs64_ffl_only:
   <<: *base
-  # train params
+  ## train params
   batch_size: 64
   add_grid: !!bool True
   in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
   input_nc: 21
-  # arch params
+  ## arch params
   use_l1_loss: !!bool False
   use_ff_loss: !!bool True
   no_gan_loss: !!bool True
@@ -209,13 +210,14 @@ bs64_ffl_only:
   norm_G: 'fadebatch3x3'
   num_upsampling_blocks: 7
   use_periodic_padding: !!bool False
-  # hyperparams
+  ## hyperparams
   lr: 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   lambda_ffl: !!float 1.
-  # logging
+  ## logging
   log_steps_to_screen: !!bool True
+  resuming: !!bool True
 
 
 #####
@@ -230,17 +232,17 @@ bs64_ganFeat_sweep:
   input_nc: 20
   ## arch params
   norm_G: 'fadebatch3x3'
-# logging
+  ## logging
   log_steps_to_screen: !!bool True
 
 bs64_ganFeat_l1_sweep:
   <<: *base
-  # train params
+  ## train params
   batch_size: 64
   in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
   input_nc: 20
   use_l1_loss: !!bool True
-# logging
+  ## logging
   log_steps_to_screen: !!bool True
 
 bs64_ganFeat_l1:
@@ -264,6 +266,8 @@ bs64_ganFeat_l1:
   beta2: 0.998
   lambda_l1: 0.4
   lambda_feat: 0.12
+  ## logging
+  resuming: !!bool True
 
 #######
 # debug
@@ -299,7 +303,7 @@ debug:
   lambda_l1: 0.33
   lambda_feat: 0.17
   # lambda_ffl: 1.
-  # logging
+  ## logging
   log_to_wandb: !!bool True
   log_steps_to_screen: !!bool True
   save_checkpoint: !!bool False

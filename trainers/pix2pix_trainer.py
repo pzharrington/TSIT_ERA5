@@ -99,7 +99,6 @@ class Pix2PixTrainer():
                     os.makedirs(os.path.join(exp_dir, 'checkpoints/'))
                 self.params.experiment_dir = os.path.abspath(exp_dir)
                 self.params.checkpoint_path = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
-                self.params.resuming = True if os.path.isfile(self.params.checkpoint_path) else False
                 wandb.init(config=self.params.params, name=self.params.name, project=self.params.project,
                            entity=self.params.entity, resume=self.params.resuming, dir=exp_dir)
 
@@ -116,7 +115,10 @@ class Pix2PixTrainer():
 
         self.params.experiment_dir = os.path.abspath(exp_dir)
         self.params.checkpoint_path = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
-        self.params.resuming = True if os.path.isfile(self.params.checkpoint_path) else False
+        # need initial value of resuming to be True even if it's the first run,
+        # otherwise no wandb-resume.json gets created
+        self.params.resuming = self.params.resuming and \
+            (True if os.path.isfile(self.params.checkpoint_path) else False)
 
         if self.sweep_id and dist.is_initialized():
             from mpi4py import MPI
