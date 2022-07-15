@@ -19,6 +19,7 @@ class Pix2PixModel():
         self.FloatTensor = torch.cuda.FloatTensor
         self.device = device
         self.isTrain = isTrain
+        self.epoch = 0
 
         self.netG, self.netD, self.netE = self.initialize_networks(params)
         if distributed:
@@ -55,6 +56,9 @@ class Pix2PixModel():
         self.netG.eval()
         if self.netD: self.netD.eval()
         if self.netE: self.netE.eval()
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def zero_all_grad(self):
         self.netG.zero_grad()
@@ -140,7 +144,7 @@ class Pix2PixModel():
         if self.params.use_vae:
             G_losses['KLD'] = KLD_loss
 
-        if not self.params.no_gan_loss:
+        if not self.params.no_gan_loss and self.params.niter_l1_pretrain - self.epoch <= 0:
             if self.params.cat_inp:
                 pred_fake, pred_real = self.discriminate(fake_image, real_image, input_image)
             else:
@@ -149,7 +153,7 @@ class Pix2PixModel():
             G_losses['GAN'] = self.criterionGAN(pred_fake, True,
                                                 for_discriminator=False)
 
-        if not self.params.no_ganFeat_loss:
+        if not self.params.no_ganFeat_loss and self.params.niter_l1_pretrain - self.epoch <= 0:
             assert not self.params.no_gan_loss, 'no_gan_loss must be False when using GAN_Feat_loss'
             num_D = len(pred_fake)
             GAN_Feat_loss = self.FloatTensor(1).fill_(0)
@@ -166,7 +170,7 @@ class Pix2PixModel():
             G_losses['Spec'] = self.compute_spec_loss(fake_image, real_image)
         if self.params.use_ff_loss:
             G_losses['FFL'] = self.params.lambda_ffl * self.FFLoss(fake_image, real_image)
-        if self.params.use_l1_loss:
+        if self.params.use_l1_loss or self.params.niter_l1_pretrain - self.epoch > 0:
             G_losses['L1'] = self.params.lambda_l1*self.criterionFeat(fake_image, real_image)
 
         return G_losses, fake_image

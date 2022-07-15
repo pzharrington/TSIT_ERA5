@@ -2,7 +2,8 @@ base: &base
 
   # data
   num_data_workers: 16
-  in_channels: [0, 1, 2, 3, 17, 18, 19] # u10, v10, t2m, sp, r500, r850, tcwv
+  # in_channels: [0, 1, 2, 3, 17, 18, 19] # u10, v10, t2m, sp, r500, r850, tcwv
+  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
   out_channels: [0] # tp
   train_data_path: '/pscratch/sd/s/shas1693/data/era5/train'
   valid_data_path: '/pscratch/sd/s/shas1693/data/era5/test'
@@ -44,7 +45,7 @@ base: &base
   # input/output sizes
   batch_size: 1 # input batch size
   img_size: [720, 1440] # w,h of input image
-  input_nc: 7 # number of input label classes (aka num input channels)
+  input_nc: 20 # number of input label classes (aka num input channels)
   output_nc: 1 # number of output image channels
 
   # for generator
@@ -69,6 +70,7 @@ base: &base
   # for training
   niter: 20 # number of iter at starting learning rate. This is NOT the total #epochs. Totla #epochs is niter + niter_decay
   niter_decay: 20 # number of iters to linearly decay learning rate to zero
+  niter_l1_pretrain: 0 # number of starting iters using l1 loss only
   optimizer: 'adam' # optimizer type 
   beta1: !!float 0.5 # momentum term of adam
   beta2: !!float 0.999 # momentum term of adam
@@ -118,8 +120,6 @@ bs64_l1_only_sweep:
   ## train params
   batch_size: 64
   add_grid: !!bool True
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 21
   ## arch params
   use_l1_loss: !!bool True
   no_gan_loss: !!bool True
@@ -134,8 +134,6 @@ bs64_l1_only:
   ## train params
   batch_size: 64
   add_grid: !!bool True
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 21
   ## arch params
   use_l1_loss: !!bool True
   no_gan_loss: !!bool True
@@ -156,8 +154,6 @@ bs64_l1_ffl_sweep:
   ## train params
   batch_size: 64
   add_grid: !!bool True
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 21
   ## arch params
   use_l1_loss: !!bool True
   use_ff_loss: !!bool True
@@ -175,8 +171,6 @@ bs64_l1_ffl:
   ## train params
   batch_size: 64
   add_grid: !!bool True
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 21
   ## arch params
   use_l1_loss: !!bool True
   use_ff_loss: !!bool True
@@ -200,8 +194,6 @@ bs64_ffl_only:
   ## train params
   batch_size: 64
   add_grid: !!bool True
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 21
   ## arch params
   use_l1_loss: !!bool False
   use_ff_loss: !!bool True
@@ -228,8 +220,6 @@ bs64_ganFeat_sweep:
   <<: *base
   ## train params
   batch_size: 64
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 20
   ## arch params
   norm_G: 'fadebatch3x3'
   ## logging
@@ -239,8 +229,6 @@ bs64_ganFeat_l1_sweep:
   <<: *base
   ## train params
   batch_size: 64
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 20
   use_l1_loss: !!bool True
   ## logging
   log_steps_to_screen: !!bool True
@@ -249,8 +237,6 @@ bs64_ganFeat_l1:
   <<: *base
   ## train params
   batch_size: 64
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 20 # 20 when add_grid is False
   ## arch params
   num_D: 4
   ngf0: 64
@@ -258,7 +244,6 @@ bs64_ganFeat_l1:
   cat_inp: !!bool True
   use_l1_loss: !!bool True
   use_periodic_padding: !!bool True
-  # norm_G: 'spectralfadebatch3x3'
   norm_G: 'fadebatch3x3'
   ## hyperparams
   lr: 3.5E-4
@@ -269,6 +254,26 @@ bs64_ganFeat_l1:
   ## logging
   resuming: !!bool True
 
+bs64_ganFeat_l1_pretrain_sweep:
+  <<: *base
+  ## train params
+  batch_size: 64
+  ## arch params
+  num_D: 4
+  ngf0: 64
+  num_upsampling_blocks: 8
+  cat_inp: !!bool True
+  use_periodic_padding: !!bool True
+  norm_G: 'fadebatch3x3'
+  ## hyperparams
+  lr: 3.5E-4
+  beta1: 0.75
+  beta2: 0.998
+  lambda_l1: 0.4
+  lambda_feat: 0.12
+  ## logging
+  resuming: !!bool False
+
 #######
 # debug
 #######
@@ -277,13 +282,10 @@ debug:
   <<: *base
   DEBUG: !!bool True
   ## train params
+  niter_l1_pretrain: 2
   batch_size: 32
   num_data_workers: 8 # batch size // 4
-  in_channels: [0, 1 ,2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-  input_nc: 21 # 20 when add_grid is False
   add_grid: !!bool True
-  gridtype: 'linear'
-  N_grid_channels: 1
   ## arch params
   num_D: 4
   ngf0: 64
@@ -307,3 +309,4 @@ debug:
   log_to_wandb: !!bool True
   log_steps_to_screen: !!bool True
   save_checkpoint: !!bool False
+  resuming: !!bool False

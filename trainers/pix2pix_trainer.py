@@ -70,6 +70,10 @@ class Pix2PixTrainer():
             if self.log_to_screen:
                 logging.info(f'Resized precip means from {old_shape} to {self.tp_tm.shape}')
 
+        # add grid channels to input_nc
+        if params.add_grid:
+            params.input_nc += params.N_grid_channels
+
         self.params = params
 
 
@@ -211,6 +215,8 @@ class Pix2PixTrainer():
                 # shuffles data before every epoch
                 self.train_sampler.set_epoch(epoch)
                 self.valid_sampler.set_epoch(epoch)
+            # for keeping track of niters_l1_pretrain
+            self.pix2pix_model.set_epoch(epoch)
 
             start = time.time()
             tr_time = self.train_one_epoch()
@@ -275,7 +281,8 @@ class Pix2PixTrainer():
             self.run_generator_one_step(data)
             g_time += time.time() - timer
             timer = time.time()
-            if not self.params.no_gan_loss:
+            if not self.params.no_gan_loss and \
+               self.params.niter_l1_pretrain - self.epoch <= 0:
                 self.run_discriminator_one_step(data)
             else:
                 self.d_losses = {}
