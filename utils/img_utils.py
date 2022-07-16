@@ -172,3 +172,29 @@ def reshape_precip(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
         img = TF.resize(img, size=(outx,outy))
 
     return img
+
+def compute_latent_vector_size(params):
+    num_blocks = params.num_upsampling_blocks
+
+    img_size_log2 = 2**int(np.log2(params.img_size[0])), \
+        2**int(np.log2(params.img_size[1]))
+
+    if params.DEBUG:
+        assert img_size_log2[0] == 512 and img_size_log2[1] == 1024, \
+            f'Unexpected img_size_log2: {img_size_log2}'
+
+    if img_size_log2 != params.img_size:
+        sw, sh = img_size_log2[0] // (2**(num_blocks-1)), \
+            img_size_log2[1] // (2**(num_blocks-1))
+
+        if params.DEBUG and num_blocks == 8:
+            assert sw == 4 and sh == 8, f'Unexpected (sw, sh): {(sw, sh)}'
+
+        if params.DEBUG and num_blocks == 7:
+            assert sw == 8 and sh == 16, f'Unexpected (sw, sh): {(sw, sh)}'
+
+    else:
+        sw, sh = img_size_log2[0] // (2**num_blocks), \
+            img_size_log2[1] // (2**num_blocks)
+
+    return sw, sh, num_blocks

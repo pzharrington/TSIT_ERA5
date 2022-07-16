@@ -11,6 +11,7 @@ from models.networks.stream import Stream as Stream
 from models.networks.stream import NoiseStream as NoiseStream
 from models.networks.AdaIN.function import adaptive_instance_normalization as FAdaIN
 from models.networks.ppad import PeriodicPad2d
+from utils.img_utils import compute_latent_vector_size
 
 class TSITGenerator(BaseNetwork):
 
@@ -22,7 +23,7 @@ class TSITGenerator(BaseNetwork):
         self.ppad = self.params.use_periodic_padding
         self.FADEResnetBlock = FADEResnetBlockPeriodic if self.ppad else FADEResnetBlock
 
-        self.sw, self.sh, self.n_stages = self.compute_latent_vector_size()
+        self.sw, self.sh, self.n_stages = compute_latent_vector_size(params)
         self.content_stream = Stream(self.params)  # , reshape_size=(self.sh*(2**self.n_stages), self.sw*(2**self.n_stages)))
         self.style_stream = Stream(self.params) if not self.params.no_ss else None
         self.noise_stream = NoiseStream(self.params) if self.params.additive_noise else None
@@ -60,32 +61,6 @@ class TSITGenerator(BaseNetwork):
         if size is None:
             return F.interpolate(input, scale_factor=2.)
         return F.interpolate(input, size=self.params.img_size)
-
-    def compute_latent_vector_size(self):
-        num_blocks = self.params.num_upsampling_blocks
-
-        img_size_log2 = 2**int(np.log2(self.params.img_size[0])), \
-            2**int(np.log2(self.params.img_size[1]))
-
-        if self.params.DEBUG:
-            assert img_size_log2[0] == 512 and img_size_log2[1] == 1024, \
-                f'Unexpected img_size_log2: {img_size_log2}'
-
-        if img_size_log2 != self.params.img_size:
-            sw, sh = img_size_log2[0] // (2**(num_blocks-1)), \
-                img_size_log2[1] // (2**(num_blocks-1))
-
-            if self.params.DEBUG and num_blocks == 8:
-                assert sw == 4 and sh == 8, f'Unexpected (sw, sh): {(sw, sh)}'
-
-            if self.params.DEBUG and num_blocks == 7:
-                assert sw == 8 and sh == 16, f'Unexpected (sw, sh): {(sw, sh)}'
-
-        else:
-            sw, sh = img_size_log2[0] // (2**num_blocks), \
-                img_size_log2[1] // (2**num_blocks)
-
-        return sw, sh, num_blocks
 
     def fadain_alpha(self, content_feat, style_feat, alpha=1.0, c_mask=None, s_mask=None):
         # FAdaIN performs AdaIN on the multi-scale feature representations
