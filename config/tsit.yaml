@@ -265,7 +265,7 @@ bs64_ganFeat_l1_latgrid:
   num_upsampling_blocks: 8
   cat_inp: !!bool True
   use_l1_loss: !!bool True
-  use_periodic_padding: !!bool True
+  use_periodic_padding: !!bool False
   norm_G: 'fadebatch3x3'
   ## hyperparams
   lr: 3.5E-4
@@ -319,7 +319,7 @@ bs64_ganFeat_vae:
   lambda_l1: 0.4
   lambda_feat: 0.12
   ## logging
-  resuming: !!bool False
+  resuming: !!bool True
 
 #######
 # debug
