@@ -300,20 +300,23 @@ bs64_ganFeat_vae:
   <<: *base
   ## train params
   batch_size: 64
+  add_grid: !!bool True
   ## arch params
   use_vae: True
+  use_l1_loss: !!bool True
+  use_periodic_padding: !!bool False
+  num_upsampling_blocks: 8
   nef: 16
-  z_dim: 128
+  z_dim: 256
   num_D: 4
   ngf0: 64
-  num_upsampling_blocks: 8
   cat_inp: !!bool True
-  use_periodic_padding: !!bool True
   norm_G: 'fadebatch3x3'
   ## hyperparams
   lr: 3.5E-4
   beta1: 0.75
   beta2: 0.998
+  lambda_l1: 0.4
   lambda_feat: 0.12
   ## logging
   resuming: !!bool False
@@ -329,16 +332,16 @@ debug:
   # niter_l1_pretrain: 2
   batch_size: 32
   num_data_workers: 8 # batch size // 4
-  # add_grid: !!bool True
+  add_grid: !!bool True
   ## arch params
   use_vae: True
   num_D: 4
   ngf0: 64
-  nef: 64
-  z_dim: 128
+  nef: 16
+  z_dim: 256
   num_upsampling_blocks: 8
-  cat_inp: !!bool False
-  use_l1_loss: !!bool False
+  cat_inp: !!bool True
+  use_l1_loss: !!bool True
   use_ff_loss: !!bool False
   no_gan_loss: !!bool False
   no_ganFeat_loss: !!bool False
@@ -346,11 +349,11 @@ debug:
   # norm_G: 'spectralfadebatch3x3'
   norm_G: 'fadebatch3x3'
   ## hyperparams
-  lr: 2.5E-4
-  beta1: 0.76
-  beta2: 0.99
-  lambda_l1: 0.33
-  lambda_feat: 0.17
+  lr: 3.5E-4
+  beta1: 0.75
+  beta2: 0.998
+  lambda_l1: 0.4
+  lambda_feat: 0.12
   # lambda_ffl: 1.
   ## logging
   log_to_wandb: !!bool True
