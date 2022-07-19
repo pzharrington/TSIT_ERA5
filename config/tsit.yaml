@@ -70,7 +70,6 @@ base: &base
   # for training
   niter: 20 # number of iter at starting learning rate. This is NOT the total #epochs. Totla #epochs is niter + niter_decay
   niter_decay: 20 # number of iters to linearly decay learning rate to zero
-  niter_l1_pretrain: 0 # number of starting iters using l1 loss only
   optimizer: 'adam' # optimizer type 
   beta1: !!float 0.5 # momentum term of adam
   beta2: !!float 0.999 # momentum term of adam
@@ -84,6 +83,8 @@ base: &base
   freq_weighting_ffl: !!bool False # whether to give more weight to higher frequencies in FFLoss 
   lat_weighting_ffl: !!bool False # whether to give more weight to mid latitudes in FFLoss
   lambda_ffl: 1. # ffl loss term weight
+  pretrained: !!bool False
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/tsitprecip/experiments/expts/bs64_l1_only/checkpoints/ckpt.tar'
 
   # for discriminators
   ndf: 64 # number of discrim filters in first conv layer
@@ -225,13 +226,26 @@ bs64_ganFeat_sweep:
   ## logging
   log_steps_to_screen: !!bool True
 
-bs64_ganFeat_l1_sweep:
+bs64_ganFeat_l1_pretrained:
   <<: *base
   ## train params
   batch_size: 64
+  pretrained: !!bool True
+  add_grid: !!bool True
   use_l1_loss: !!bool True
+  no_gan_loss: !!bool False
+  no_ganFeat_loss: !!bool False
+  use_periodic_padding: !!bool True
+  num_upsampling_blocks: 8
+  norm_G: 'spectralfadebatch3x3'
+  ## hyperparams
+  lr: 2.5E-4
+  beta1: 0.75
+  beta2: 0.998
+  lambda_l1: 0.4
+  lambda_feat: 0.12
   ## logging
-  log_steps_to_screen: !!bool True
+  resuming: !!bool True
 
 bs64_ganFeat_l1:
   <<: *base
@@ -333,8 +347,9 @@ debug:
   batch_size: 32
   num_data_workers: 8 # batch size // 4
   add_grid: !!bool True
+  pretrained: !!bool True
   ## arch params
-  use_vae: True
+  use_vae: False
   num_D: 4
   ngf0: 64
   nef: 16
@@ -345,9 +360,9 @@ debug:
   use_ff_loss: !!bool False
   no_gan_loss: !!bool False
   no_ganFeat_loss: !!bool False
-  use_periodic_padding: !!bool False
-  # norm_G: 'spectralfadebatch3x3'
-  norm_G: 'fadebatch3x3'
+  use_periodic_padding: !!bool True
+  norm_G: 'spectralfadebatch3x3'
+  # norm_G: 'fadebatch3x3'
   ## hyperparams
   lr: 3.5E-4
   beta1: 0.75

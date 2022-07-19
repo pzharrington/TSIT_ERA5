@@ -75,8 +75,8 @@ class Pix2PixModel():
 
     def load_state(self, ckpt):
         self.netG.load_state_dict(ckpt['model_state_G'])
-        if self.netD: self.netD.load_state_dict(ckpt['model_state_D'])
-        if self.netE: self.netE.load_state_dict(ckpt['model_state_E'])
+        if self.netD and ckpt['model_state_D'] is not None: self.netD.load_state_dict(ckpt['model_state_D'])
+        if self.netE and ckpt['model_state_E'] is not None: self.netE.load_state_dict(ckpt['model_state_E'])
 
 
     """
@@ -144,7 +144,7 @@ class Pix2PixModel():
         if self.params.use_vae:
             G_losses['KLD'] = KLD_loss
 
-        if not self.params.no_gan_loss and self.params.niter_l1_pretrain - self.epoch <= 0:
+        if not self.params.no_gan_loss:
             if self.params.cat_inp:
                 pred_fake, pred_real = self.discriminate(fake_image, real_image, input_image)
             else:
@@ -153,7 +153,7 @@ class Pix2PixModel():
             G_losses['GAN'] = self.criterionGAN(pred_fake, True,
                                                 for_discriminator=False)
 
-        if not self.params.no_ganFeat_loss and self.params.niter_l1_pretrain - self.epoch <= 0:
+        if not self.params.no_ganFeat_loss:
             assert not self.params.no_gan_loss, 'no_gan_loss must be False when using GAN_Feat_loss'
             num_D = len(pred_fake)
             GAN_Feat_loss = self.FloatTensor(1).fill_(0)
@@ -170,7 +170,7 @@ class Pix2PixModel():
             G_losses['Spec'] = self.compute_spec_loss(fake_image, real_image)
         if self.params.use_ff_loss:
             G_losses['FFL'] = self.params.lambda_ffl * self.FFLoss(fake_image, real_image)
-        if self.params.use_l1_loss or self.params.niter_l1_pretrain - self.epoch > 0:
+        if self.params.use_l1_loss:
             G_losses['L1'] = self.params.lambda_l1*self.criterionFeat(fake_image, real_image)
 
         return G_losses, fake_image

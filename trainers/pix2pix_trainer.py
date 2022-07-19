@@ -199,6 +199,11 @@ class Pix2PixTrainer():
         if self.params.resuming:
             logging.info("Loading checkpoint %s"%self.params.checkpoint_path)
             self.restore_checkpoint(self.params.checkpoint_path)
+        elif self.params.pretrained:
+            assert os.path.isfile(self.params.pretrained_model_path), \
+                f'There is no pretrained model file {self.params.pretrained_model_path}'
+            logging.info("Loading pretrained model %s"%self.params.pretrained_model_path)
+            self.restore_checkpoint(self.params.pretrained_model_path, pretrained_model=True)
 
         self.epoch = self.startEpoch
 
@@ -281,8 +286,7 @@ class Pix2PixTrainer():
             self.run_generator_one_step(data)
             g_time += time.time() - timer
             timer = time.time()
-            if not self.params.no_gan_loss and \
-               self.params.niter_l1_pretrain - self.epoch <= 0:
+            if not self.params.no_gan_loss:
                 self.run_discriminator_one_step(data)
             else:
                 self.d_losses = {}
@@ -483,7 +487,7 @@ class Pix2PixTrainer():
                         'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None},
                        checkpoint_path.replace('.tar', '_best.tar'))
 
-    def restore_checkpoint(self, checkpoint_path):
+    def restore_checkpoint(self, checkpoint_path, pretrained_model=False):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.local_rank))
         if not dist.is_initialized():
             # remove DDP 'module' prefix if not distributed
@@ -491,13 +495,14 @@ class Pix2PixTrainer():
                 if 'model_state' in key and checkpoint[key] is not None:
                     consume_prefix_in_state_dict_if_present(checkpoint[key], 'module.')
         self.pix2pix_model.load_state(checkpoint)
-        self.iters = checkpoint['iters']
-        self.startEpoch = checkpoint['epoch'] + 1
-        self.optimizerG.load_state_dict(checkpoint['optimizerG_state_dict'])
-        self.schedulerG.load_state_dict(checkpoint['schedulerG_state_dict'])
-        if not self.params.no_gan_loss:
-            self.optimizerD.load_state_dict(checkpoint['optimizerD_state_dict'])
-            self.schedulerD.load_state_dict(checkpoint['schedulerD_state_dict'])
+        if not pretrained_model:
+            self.iters = checkpoint['iters']
+            self.startEpoch = checkpoint['epoch'] + 1
+            self.optimizerG.load_state_dict(checkpoint['optimizerG_state_dict'])
+            self.schedulerG.load_state_dict(checkpoint['schedulerG_state_dict'])
+            if not self.params.no_gan_loss:
+                self.optimizerD.load_state_dict(checkpoint['optimizerD_state_dict'])
+                self.schedulerD.load_state_dict(checkpoint['schedulerD_state_dict'])
 
     def run_generator_one_step(self, data):
         self.optimizerG.zero_grad()
