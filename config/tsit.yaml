@@ -128,7 +128,6 @@ bs64_l1_only_sweep:
   ## hyperparams
   lambda_l1: !!float 1.
   ## logging
-  log_steps_to_screen: !!bool True
 
 bs64_l1_only:
   <<: *base
@@ -147,7 +146,6 @@ bs64_l1_only:
   beta1: !!float 0.85
   beta2: !!float 0.95
   ## logging
-  log_steps_to_screen: !!bool True
   resuming: !!bool True
 
 bs64_l1_ffl_sweep:
@@ -165,7 +163,6 @@ bs64_l1_ffl_sweep:
   use_periodic_padding: !!bool False
   ## hyperparams
   ## logging
-  log_steps_to_screen: !!bool True
 
 bs64_l1_ffl:
   <<: *base
@@ -187,7 +184,6 @@ bs64_l1_ffl:
   lambda_l1: !!float 1.
   lambda_ffl: !!float 1.
   ## logging
-  log_steps_to_screen: !!bool True
   resuming: !!bool True
 
 bs64_ffl_only:
@@ -209,7 +205,6 @@ bs64_ffl_only:
   beta2: !!float 0.95
   lambda_ffl: !!float 1.
   ## logging
-  log_steps_to_screen: !!bool True
   resuming: !!bool True
 
 
@@ -224,7 +219,6 @@ bs64_ganFeat_sweep:
   ## arch params
   norm_G: 'fadebatch3x3'
   ## logging
-  log_steps_to_screen: !!bool True
 
 bs64_ganFeat_l1:
   <<: *base
