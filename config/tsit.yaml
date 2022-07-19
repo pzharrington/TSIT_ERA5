@@ -254,6 +254,28 @@ bs64_ganFeat_l1:
   ## logging
   resuming: !!bool True
 
+bs64_ganFeat_l1_latgrid:
+  <<: *base
+  ## train params
+  batch_size: 64
+  add_grid: !!bool True
+  ## arch params
+  num_D: 4
+  ngf0: 64
+  num_upsampling_blocks: 8
+  cat_inp: !!bool True
+  use_l1_loss: !!bool True
+  use_periodic_padding: !!bool True
+  norm_G: 'fadebatch3x3'
+  ## hyperparams
+  lr: 3.5E-4
+  beta1: 0.75
+  beta2: 0.998
+  lambda_l1: 0.4
+  lambda_feat: 0.12
+  ## logging
+  resuming: !!bool True
+
 bs64_ganFeat_l1_pretrain_sweep:
   <<: *base
   ## train params
@@ -281,7 +303,7 @@ bs64_ganFeat_vae:
   ## arch params
   use_vae: True
   nef: 16
-  z_dim: 256
+  z_dim: 128
   num_D: 4
   ngf0: 64
   num_upsampling_blocks: 8
