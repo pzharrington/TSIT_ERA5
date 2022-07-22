@@ -249,12 +249,16 @@ class Pix2PixTrainer():
                 self.logs['epoch'] = self.epoch + 1
                 wandb.log(self.logs)
 
+            if self.params.DEBUG:
+                logging.info(f'Rank {self.world_rank} | ACC = {self.logs["acc"]}')
+
             if self.log_to_screen:
                 logging.info('Time taken for epoch {} is {} sec'.format(self.epoch+1, time.time()-start))
                 logging.info('Train time = {}, Valid time = {}'.format(tr_time, valid_time))
                 logging.info('G losses = '+str(self.g_losses))
                 logging.info('D losses = '+str(self.d_losses))
                 logging.info('ACC = %f'%self.logs['acc'])
+                logging.info('ACC overall = %f'%self.logs['acc_overall'])
                 logging.info('RMSE = %f'%self.logs['rmse'])
                 logging.info('RMSE amp = %f'%self.logs['rmse_amp'])
                 logging.info('RMSE phase = %f'%self.logs['rmse_phase'])
@@ -298,6 +302,9 @@ class Pix2PixTrainer():
             if self.params.log_steps_to_screen and (i % self.params.log_every_n_steps) == 0:
                 logging.info(f'Rank {self.world_rank} | B: {i+1}/{len(self.train_data_loader)} | '
                              f'G: {self.g_losses} | D: {self.d_losses}')
+
+            if self.params.DEBUG and i > 0 and (i % self.params.log_every_n_steps) == 0:
+                break
 
         tr_time = time.time() - tr_start
 
@@ -412,25 +419,17 @@ class Pix2PixTrainer():
             afno_acc = torch.cat(afno_acc)
             afno_rmse = torch.cat(afno_rmse)
 
-        """
-        # TODO: debug all_gather of acc_global
-        # All-gather for full validation set currently OOMs
         if self.world_size > 1:
-            # gather the sizes
+            # average acc across ranks
             sz = torch.tensor(preds.shape[0]).float().to(self.device)
-            sz_gather = [torch.zeros((1,)).float().to(self.device) for _ in range(self.world_size)]
-            dist.all_gather(sz_gather, sz)
-            # gather all the preds 
-            preds_global = [torch.zeros(int(sz_loc.item()), nc, ih, iw).float().to(self.device) for sz_loc in sz_gather]
-            dist.all_gather(preds_global, preds)
-            preds = torch.cat([x for x in preds_global])
-            targets_global = [torch.zeros(int(sz_loc.item()), nc, ih, iw).float().to(self.device) for sz_loc in sz_gather]
-            dist.all_gather(targets_global, targets)
-            targets = torch.cat([x for x in targets_global])
-            acc_global = [torch.zeros(int(sz_loc.item()), nc).float().to(self.device) for sz_loc in sz_gather]
-            dist.all_gather(acc_global, acc)
-            acc = torch.cat([x for x in acc_global])
-        """
+            sz_overall = torch.clone(sz)
+            dist.all_reduce(sz_overall)
+            acc_overall = acc.mean() * sz
+            dist.all_reduce(acc_overall)
+            acc_overall = acc_overall.item() / sz_overall.item()
+        else:
+            acc_overall = acc.mean().item()
+
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
 
         if self.afno_validate:
@@ -459,9 +458,12 @@ class Pix2PixTrainer():
         valid_time = time.time() - valid_start
         self.logs.update({'acc': acc.mean().item()})
         self.logs.update({'rmse': rmse.mean().item()})
+        self.logs.update({'acc_overall': acc_overall})
         if self.afno_validate:
             self.logs.update({'acc_afno': afno_acc.mean().item()})
             self.logs.update({'rmse_afno': afno_rmse.mean().item()})
+            # log fixed overall afno validation acc
+            self.logs.update({'acc_afno_overall': self.params.afno_acc_overall})
         self.logs.update(spec_metrics)
         agg = time.time() - timer 
         if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ data_time + acctime + spectime + agg)))

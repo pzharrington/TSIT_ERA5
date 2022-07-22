@@ -34,6 +34,7 @@ base: &base
   afno_model_wind_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper/1/training_checkpoints/best_ckpt.tar'
   afno_patch_size: 8
   afno_num_blocks: 8
+  afno_acc_overall: 0.5337 # fixed AFNO ACC for full validation set
 
   # model types
   model: 'pix2pix' # which model to use
@@ -325,7 +326,7 @@ debug:
   batch_size: 32
   num_data_workers: 8 # batch size // 4
   add_grid: !!bool True
-  pretrained: !!bool True
+  pretrained: !!bool False
   ## arch params
   use_vae: False
   num_D: 4
@@ -336,11 +337,11 @@ debug:
   cat_inp: !!bool True
   use_l1_loss: !!bool True
   use_ff_loss: !!bool False
-  no_gan_loss: !!bool False
-  no_ganFeat_loss: !!bool False
+  no_gan_loss: !!bool True
+  no_ganFeat_loss: !!bool True
   use_periodic_padding: !!bool True
-  norm_G: 'spectralfadebatch3x3'
-  # norm_G: 'fadebatch3x3'
+  # norm_G: 'spectralfadebatch3x3'
+  norm_G: 'fadebatch3x3'
   ## hyperparams
   lr: 3.5E-4
   beta1: 0.75
@@ -349,7 +350,8 @@ debug:
   lambda_feat: 0.12
   # lambda_ffl: 1.
   ## logging
-  log_to_wandb: !!bool True
+  log_to_wandb: !!bool False
   log_steps_to_screen: !!bool True
+  log_every_n_steps: 200
   save_checkpoint: !!bool False
   resuming: !!bool False
