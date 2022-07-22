@@ -230,8 +230,8 @@ class Pix2PixTrainer():
             if self.schedulerD is not None:
                 self.schedulerD.step()
 
-            is_best = self.logs['acc'] >= best
-            best = max(self.logs['acc'], best)
+            is_best = self.logs['acc_overall'] >= best
+            best = max(self.logs['acc_overall'], best)
 
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
