@@ -208,10 +208,10 @@ class Pix2PixModel():
         return unweighted_loss*self.params.lambda_spec
 
 
-    def generate_fake(self, input_image, real_image, compute_kld_loss=False):
+    def generate_fake(self, input_image, real_image, compute_kld_loss=False, validation=False):
         z = None
         KLD_loss = None
-        if self.params.use_vae:
+        if self.params.use_vae and not validation:
             z, mu, logvar = self.encode_z(real_image)
             if compute_kld_loss:
                 KLD_loss = self.KLDLoss(mu, logvar) * self.params.lambda_kld

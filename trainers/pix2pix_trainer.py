@@ -541,5 +541,5 @@ class Pix2PixTrainer():
         return self.generated
 
     def generate_validation(self, data):
-        generated, _ = self.pix2pix_model.generate_fake(data[0], data[1])
+        generated, _ = self.pix2pix_model.generate_fake(data[0], data[1], validation=True)
         return generated

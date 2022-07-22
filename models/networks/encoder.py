@@ -40,7 +40,7 @@ class ConvEncoder(BaseNetwork):
 
     def forward(self, x):
 
-        if x.size(2) != self.img_size_log2[1] or x.size(3) != self.img_size_log2[1]:
+        if x.size(2) != self.img_size_log2[0] or x.size(3) != self.img_size_log2[1]:
             x = F.interpolate(x, size=self.img_size_log2, mode='bilinear')
 
         x = self.layer1(x)
