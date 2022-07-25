@@ -21,7 +21,13 @@ class Pix2PixModel():
         self.isTrain = isTrain
         self.epoch = 0
 
-        self.netG, self.netD, self.netE = self.initialize_networks(params)
+        # get correct input_nc, in case Pix2PixModel is initialized directly
+        input_nc = len(self.params.in_channels) + \
+            self.params.N_grid_channels if self.params.add_grid else 0
+        if self.params.input_nc != input_nc:
+            self.params.input_nc = input_nc
+
+        self.netG, self.netD, self.netE = self.initialize_networks(self.params)
         if distributed:
             self.netG = nn.SyncBatchNorm.convert_sync_batchnorm(self.netG)
             self.netD = nn.SyncBatchNorm.convert_sync_batchnorm(self.netD) if self.netD else None
@@ -34,7 +40,7 @@ class Pix2PixModel():
         # set loss functions
         if self.isTrain:
             self.criterionGAN = networks.GANLoss(
-                params.gan_mode, tensor=self.FloatTensor, params=params)
+                params.gan_mode, tensor=self.FloatTensor, params=self.params)
             self.criterionFeat = torch.nn.L1Loss()
             if params.use_vae:
                 self.KLDLoss = networks.KLDLoss()
