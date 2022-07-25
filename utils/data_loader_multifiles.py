@@ -113,7 +113,7 @@ class GetDataset(Dataset):
       #if we are on the last image in a year predict identity, else predict next timestep
       step = 0 if tar_local_idx >= self.n_samples_per_year-self.dt else self.dt
       # first year has 2 missing samples in precip (they are first two time points)
-      if year_idx == 0:
+      if year_idx == 0 and self.train:
         lim = 1458
         local_idx = local_idx%lim 
         inp_local_idx = local_idx + 2
