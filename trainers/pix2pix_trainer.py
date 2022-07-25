@@ -453,7 +453,7 @@ class Pix2PixTrainer():
             spectra_mean[key] = std_mean[1].detach().cpu().numpy()
             spectra_std[key] = std_mean[0].detach().cpu().numpy() # / np.sqrt(amp.shape[0])
 
-        spectra = [spectra_mean, spectra_std]
+        spectra = [spectra_mean, spectra_std, acc.shape[0]]
 
         valid_time = time.time() - valid_start
         self.logs.update({'acc': acc.mean().item()})

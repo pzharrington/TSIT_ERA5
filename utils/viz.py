@@ -44,7 +44,7 @@ def viz_fields(flist):
 
 
 def viz_spectra(spectra):
-    spec_mean, spec_std = spectra
+    spec_mean, spec_std, n = spectra
 
     plt_fmt = {
         'tsit': 'g-',
@@ -52,8 +52,9 @@ def viz_spectra(spectra):
         'afno': 'r-',
     }
 
-    f = plt.figure(figsize=(10, 5))
+    f = plt.figure(figsize=(10, 10))
 
+    plt.subplot(2, 1, 1)
     for key in spec_mean.keys():
         mean = spec_mean[key]
         std = spec_std[key]
@@ -65,5 +66,20 @@ def viz_spectra(spectra):
     plt.xlabel('wave number')
     plt.ylabel('amplitude')
     plt.legend()
+    plt.title(f'Power spectra +/- std (n = {n})')
+
+    plt.subplot(2, 1, 2)
+    for key in spec_mean.keys():
+        mean = spec_mean[key][600:]
+        stderr = spec_std[key][600:] / np.sqrt(n)
+        wavenum = np.arange(start=600, stop=spec_mean[key].shape[-1])
+        plt.semilogy(wavenum, mean, plt_fmt[key], label=key)
+        plt.fill_between(wavenum, mean - stderr, mean + stderr,
+                         color=plt_fmt[key][0], alpha=0.2)
+
+    plt.xlabel('wave number')
+    plt.ylabel('amplitude')
+    plt.legend()
+    plt.title(f'Power spectra +/- std err (n = {n})')
 
     return f

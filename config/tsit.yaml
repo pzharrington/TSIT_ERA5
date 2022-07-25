@@ -34,7 +34,7 @@ base: &base
   afno_model_wind_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper/1/training_checkpoints/best_ckpt.tar'
   afno_patch_size: 8
   afno_num_blocks: 8
-  afno_acc_overall: 0.5337 # fixed AFNO ACC for full validation set
+  afno_acc_overall: 0.8051 # fixed AFNO ACC for full validation set
 
   # model types
   model: 'pix2pix' # which model to use
