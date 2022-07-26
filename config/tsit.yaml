@@ -307,6 +307,7 @@ bs64_ganFeat_l1_pretrained_sweep: # v2
   num_D: 4
   ## hyperparams
   ## logging
+  log_steps_to_screen: !!bool True
   resuming: !!bool False
 
 bs64_ganFeat_vae:
