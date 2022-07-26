@@ -85,8 +85,9 @@ base: &base
   freq_weighting_ffl: !!bool False # whether to give more weight to higher frequencies in FFLoss 
   lat_weighting_ffl: !!bool False # whether to give more weight to mid latitudes in FFLoss
   lambda_ffl: 1. # ffl loss term weight
-  pretrained: !!bool False
+  pretrained: !!bool False # whether to use a pretrained model as parameter initialization
   pretrained_model_path: '/pscratch/sd/j/jpduncan/tsitprecip/experiments/expts/bs64_l1_only/checkpoints/ckpt.tar'
+  pretrained_same_arch: !!bool True # whether pretrained model should have the same architecture as current model
 
   # for discriminators
   ndf: 64 # number of discrim filters in first conv layer

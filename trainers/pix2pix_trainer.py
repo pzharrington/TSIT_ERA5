@@ -203,7 +203,9 @@ class Pix2PixTrainer():
             assert os.path.isfile(self.params.pretrained_model_path), \
                 f'There is no pretrained model file {self.params.pretrained_model_path}'
             logging.info("Loading pretrained model %s"%self.params.pretrained_model_path)
-            self.restore_checkpoint(self.params.pretrained_model_path, pretrained_model=True)
+            self.restore_checkpoint(self.params.pretrained_model_path,
+                                    pretrained_model=True,
+                                    pretrained_same_arch=self.params.pretrained_same_arch)
 
         self.epoch = self.startEpoch
 
@@ -489,14 +491,14 @@ class Pix2PixTrainer():
                         'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None},
                        checkpoint_path.replace('.tar', '_best.tar'))
 
-    def restore_checkpoint(self, checkpoint_path, pretrained_model=False):
+    def restore_checkpoint(self, checkpoint_path, pretrained_model=False, pretrained_same_arch=True):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.local_rank))
         if not dist.is_initialized():
             # remove DDP 'module' prefix if not distributed
             for key in checkpoint.keys():
                 if 'model_state' in key and checkpoint[key] is not None:
                     consume_prefix_in_state_dict_if_present(checkpoint[key], 'module.')
-        self.pix2pix_model.load_state(checkpoint)
+        self.pix2pix_model.load_state(checkpoint, pretrained_model, pretrained_same_arch)
         if not pretrained_model:
             self.iters = checkpoint['iters']
             self.startEpoch = checkpoint['epoch'] + 1

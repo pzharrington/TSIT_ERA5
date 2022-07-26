@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -79,11 +81,28 @@ class Pix2PixModel():
         elif net=='encoder':
             return self.netE.state_dict() if self.netE else None
 
-    def load_state(self, ckpt):
-        self.netG.load_state_dict(ckpt['model_state_G'])
-        if self.netD and ckpt['model_state_D'] is not None: self.netD.load_state_dict(ckpt['model_state_D'])
-        if self.netE and ckpt['model_state_E'] is not None: self.netE.load_state_dict(ckpt['model_state_E'])
-
+    def load_state(self, ckpt, pretrained_model=False, pretrained_same_arch=True):
+        if not pretrained_model:
+            self.netG.load_state_dict(ckpt['model_state_G'])
+            if self.netD and ckpt['model_state_D'] is not None: self.netD.load_state_dict(ckpt['model_state_D'])
+            if self.netE and ckpt['model_state_E'] is not None: self.netE.load_state_dict(ckpt['model_state_E'])
+        else:
+            for net in ['G', 'D', 'E']:
+                if net == 'G' or (getattr(self, f'net{net}') is not None and
+                                  ckpt[f'model_state_{net}'] is not None):
+                    net_ = getattr(self, f'net{net}')
+                    ckpt_ = ckpt[f'model_state_{net}']
+                    state_dict = net_.state_dict()
+                    new_state_dict = OrderedDict()
+                    for key, val in ckpt_.items():
+                        if key in state_dict.keys():
+                            new_state_dict[key] = val
+                        else:
+                            assert not pretrained_same_arch, \
+                                (f'pretrained parameter named "{key}" not found in Generator state dict; '
+                                 'set params.pretrained_same_arch to False?')
+                    state_dict.update(new_state_dict)
+                    net_.load_state_dict(state_dict)
 
     """
     # Entry point for all calls involving forward pass
