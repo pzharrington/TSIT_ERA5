@@ -252,7 +252,7 @@ class Pix2PixTrainer():
                 wandb.log(self.logs)
 
             if self.params.DEBUG:
-                logging.info(f'Rank {self.world_rank} | ACC = {self.logs["acc"]}')
+                logging.info(f'Rank {self.world_rank} | acc = {self.logs["acc"]}')
 
             if self.log_to_screen:
                 logging.info('Time taken for epoch {} is {} sec'.format(self.epoch+1, time.time()-start))
@@ -305,7 +305,7 @@ class Pix2PixTrainer():
                 logging.info(f'Rank {self.world_rank} | B: {i+1}/{len(self.train_data_loader)} | '
                              f'G: {self.g_losses} | D: {self.d_losses}')
 
-            if self.params.DEBUG and i > 0 and (i % self.params.log_every_n_steps) == 0:
+            if self.params.DEBUG and i > 0 and (i % (self.params.log_every_n_steps * 4)) == 0:
                 break
 
         tr_time = time.time() - tr_start
@@ -467,8 +467,8 @@ class Pix2PixTrainer():
             # log fixed overall afno validation acc
             self.logs.update({'acc_afno_overall': self.params.afno_acc_overall})
         self.logs.update(spec_metrics)
-        agg = time.time() - timer 
-        if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ data_time + acctime + spectime + agg)))
+        agg = time.time() - timer
+        if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ data_time + acctime + spectime + afnotime + agg)))
 
         return valid_time, fields, spectra
 
