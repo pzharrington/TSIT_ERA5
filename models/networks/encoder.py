@@ -23,7 +23,13 @@ class ConvEncoder(BaseNetwork):
         ndf = params.nef
         norm_layer = get_norm_layer(params, params.norm_E)
 
-        self.layer1 = norm_layer(nn.Conv2d(self.params.output_nc, ndf, kw, stride=2, padding=pw))
+        if params.vae_full_res_start:
+            self.layer0 = norm_layer(nn.Conv2d(self.params.output_nc, ndf, kernel_size=kw, padding=1))
+            self.layer1 = norm_layer(nn.Conv2d(ndf, ndf * 2, kw, stride=2, padding=pw))
+            ndf = ndf * 2
+        else:
+            self.layer0 = None
+            self.layer1 = norm_layer(nn.Conv2d(self.params.output_nc, ndf, kw, stride=2, padding=pw))
         self.layer2 = norm_layer(nn.Conv2d(ndf * 1, ndf * 2, kw, stride=2, padding=pw))
         self.layer3 = norm_layer(nn.Conv2d(ndf * 2, ndf * 4, kw, stride=2, padding=pw))
         self.layer4 = norm_layer(nn.Conv2d(ndf * 4, ndf * 8, kw, stride=2, padding=pw))
@@ -39,6 +45,9 @@ class ConvEncoder(BaseNetwork):
         self.actvn = nn.LeakyReLU(0.2, False)
 
     def forward(self, x):
+
+        if self.params.vae_full_res_start:
+            x = self.layer0(x)
 
         if x.size(2) != self.img_size_log2[0] or x.size(3) != self.img_size_log2[1]:
             x = F.interpolate(x, size=self.img_size_log2, mode='bilinear')

@@ -67,6 +67,7 @@ base: &base
   # VAE setup
   nef: 16 # number of encoder filters in the first conv layer
   use_vae: !!bool False # enable training with an image encoder.
+  vae_full_res_start: !!bool False #
 
   # for training
   niter: 20 # number of iter at starting learning rate. This is NOT the total #epochs. Totla #epochs is niter + niter_decay
