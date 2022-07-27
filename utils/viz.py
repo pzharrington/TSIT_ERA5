@@ -26,18 +26,20 @@ def viz_fields(flist):
 
     plt.subplot(rows,1,3)
     err = (pred - tar) / (tar + 1)
-    plt.imshow(err, norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
-    plt.title('TSIT relative error')
 
-    if afno is not None:
-        plt.subplot(rows,1,4)
-        plt.imshow(afno, cmap='Blues', norm=Normalize(0., sc))
-        plt.title('AFNO')
+    if err.min() < 0. and err.max() > 0.:
+        plt.imshow(err, norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
+        plt.title('TSIT relative error')
 
-        plt.subplot(rows,1,5)
-        plt.imshow((afno - tar) / (tar + 1),
-                   norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
-        plt.title('AFNO relative error')
+        if afno is not None:
+            plt.subplot(rows,1,4)
+            plt.imshow(afno, cmap='Blues', norm=Normalize(0., sc))
+            plt.title('AFNO')
+
+            plt.subplot(rows,1,5)
+            plt.imshow((afno - tar) / (tar + 1),
+                       norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
+            plt.title('AFNO relative error')
 
     plt.tight_layout()
     return f
