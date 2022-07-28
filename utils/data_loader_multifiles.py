@@ -46,6 +46,7 @@ class GetDataset(Dataset):
     self.crop_size_y = params.crop_size_y
     self.roll = params.roll
     self._get_files_stats()
+    self.orography = params.orography
     self.precip = True if "precip" in params else False
     if self.precip:
         path = params.precip+'/train' if train else params.precip+'/test'
@@ -57,6 +58,8 @@ class GetDataset(Dataset):
     except:
         self.normalize = True #by default turn on normalization if not specified in config
 
+    if self.orography:
+        self.orography_path = params.orography_path
 
   def _get_files_stats(self):
     self.files_paths = glob.glob(self.location + "/*.h5")
@@ -82,6 +85,9 @@ class GetDataset(Dataset):
   def _open_file(self, year_idx):
     _file = h5py.File(self.files_paths[year_idx], 'r')
     self.files[year_idx] = _file['fields']  
+    if self.orography:
+      _orog_file = h5py.File(self.orography_path, 'r')
+      self.orography_field = _orog_file['orog']
     if self.precip:
       self.precip_files[year_idx] = h5py.File(self.precip_paths[year_idx], 'r')['tp']
     
@@ -125,6 +131,11 @@ class GetDataset(Dataset):
     else:
       y_roll = 0
 
+    if self.orography:
+        orog = self.orography_field[0:720].astype(np.float32)
+    else:
+        orog = None
+
     if self.train and (self.crop_size_x or self.crop_size_y):
       rnd_x = random.randint(0, self.img_shape_x-self.crop_size_x)
       rnd_y = random.randint(0, self.img_shape_y-self.crop_size_y)    
@@ -132,5 +143,5 @@ class GetDataset(Dataset):
       rnd_x = 0
       rnd_y = 0
       
-    return reshape_fields(self.files[year_idx][inp_local_idx, self.in_channels], 'inp', self.crop_size_x, self.crop_size_y, rnd_x, rnd_y,self.params, y_roll, self.train), \
+    return reshape_fields(self.files[year_idx][inp_local_idx, self.in_channels], 'inp', self.crop_size_x, self.crop_size_y, rnd_x, rnd_y,self.params, y_roll, self.train, True, orog), \
                 reshape_precip(self.precip_files[year_idx][tar_local_idx+step], 'tar', self.crop_size_x, self.crop_size_y, rnd_x, rnd_y, self.params, y_roll, self.train)

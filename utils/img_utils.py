@@ -31,7 +31,7 @@ class PeriodicPad2d(nn.Module):
         out = F.pad(out, (0, 0, self.pad_width, self.pad_width), mode="constant", value=0) 
         return out
 
-def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, params, y_roll, train, normalize=True):
+def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, params, y_roll, train, normalize=True, orog=None):
     #Takes in np array of size (n_history+1, c, h, w) and returns torch tensor of size ((n_channels*(n_history+1), crop_size_x, crop_size_y)
 
     if len(np.shape(img)) ==3:
@@ -94,6 +94,10 @@ def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
 
     if params.roll:
         img = np.roll(img, y_roll, axis = -1)
+
+    if params.orography and inp_or_tar == 'inp':
+        img = np.concatenate((img, np.expand_dims(orog, axis = (0,1) )), axis = 1)
+        n_channels += 1
 
     if train and (crop_size_x or crop_size_y):
         img = img[:,:,rnd_x:rnd_x+crop_size_x, rnd_y:rnd_y+crop_size_y]

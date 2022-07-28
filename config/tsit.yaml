@@ -14,6 +14,8 @@ base: &base
   global_stds_path:  '/pscratch/sd/s/shas1693/data/era5/global_stds.npy'
   precip: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation'
   precip_time_means: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation/time_means.npy'
+  orography_path: '/pscratch/sd/s/shas1693/data/era5/static/orography.h5'
+  orography: !!bool False
   precip_eps: !!float 1e-5 # epsilon for normalizing precip log(1+tp/eps)
   dt: 1 # timestep length
   n_history: 0 # history input
@@ -383,6 +385,7 @@ debug:
   batch_size: 32
   num_data_workers: 8 # batch size // 4
   add_grid: !!bool True
+  orography: !!bool True
   pretrained: !!bool False
   pretrained_same_arch: !!bool True
   ## arch params

@@ -25,7 +25,8 @@ class Pix2PixModel():
 
         # get correct input_nc, in case Pix2PixModel is initialized directly
         input_nc = len(self.params.in_channels) + \
-            self.params.N_grid_channels if self.params.add_grid else 0
+            (self.params.N_grid_channels if self.params.add_grid else 0) + \
+            (1 if self.params.orography else 0)
         if self.params.input_nc != input_nc:
             self.params.input_nc = input_nc
 

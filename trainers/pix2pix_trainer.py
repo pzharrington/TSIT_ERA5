@@ -74,6 +74,9 @@ class Pix2PixTrainer():
         if params.add_grid:
             params.input_nc += params.N_grid_channels
 
+        if params.orography:
+            params.input_nc += 1
+
         self.params = params
 
 
