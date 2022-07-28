@@ -414,15 +414,17 @@ debug:
   vae_full_res_start: !!bool True
   num_D: 4
   n_layers_D: 4
-  nef: 16
-  z_dim: 256
+  nef: 8
+  z_dim: 128
   ngf0: 64
   num_upsampling_blocks: 8
   cat_inp: !!bool True
   use_l1_loss: !!bool True
-  use_ff_loss: !!bool False
-  no_gan_loss: !!bool False
-  no_ganFeat_loss: !!bool False
+  use_ff_loss: !!bool True
+  freq_weighting_ffl: !!bool True
+  lat_weighting_ffl: !!bool True
+  no_gan_loss: !!bool True
+  no_ganFeat_loss: !!bool True
   use_periodic_padding: !!bool True
   norm_G: 'spectralfadebatch3x3'
   # norm_G: 'fadebatch3x3'
@@ -431,6 +433,7 @@ debug:
   beta1: 0.75
   beta2: 0.95
   lambda_l1: 0.5
+  lambda_ffl: 1.0
   lambda_feat: 0.75
   lambda_kld: 0.6
   # lambda_ffl: 1.

@@ -120,8 +120,8 @@ class FFLoss(nn.Module):
                  log_matrix: bool=False,
                  batch_matrix: bool=False):
 
-        pred_fft = torch.fft.rfft(pred, dim=-1, norm='ortho')
-        tar_fft = torch.fft.rfft(target, dim=-1, norm='ortho')
+        pred_fft = torch.fft.rfft(pred.float(), dim=-1, norm='ortho')
+        tar_fft = torch.fft.rfft(target.float(), dim=-1, norm='ortho')
 
         pred_freq = torch.stack([pred_fft.real, pred_fft.imag], -1)
         tar_freq = torch.stack([tar_fft.real, tar_fft.imag], -1)
