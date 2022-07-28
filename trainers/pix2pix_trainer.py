@@ -194,6 +194,8 @@ class Pix2PixTrainer():
         self.iters = 0
         self.startEpoch = 0
 
+        # self.params.resuming is False if there's no checkpoint file, in which
+        # case we can load the pretrained model, if using
         if self.params.resuming:
             logging.info("Loading checkpoint %s"%self.params.checkpoint_path)
             self.restore_checkpoint(self.params.checkpoint_path)
@@ -425,7 +427,7 @@ class Pix2PixTrainer():
             afno_acc = torch.cat(afno_acc)
             afno_rmse = torch.cat(afno_rmse)
 
-        if self.world_size > 1:
+        if dist.is_initialized():
             # average acc across ranks
             sz = torch.tensor(preds.shape[0]).float().to(self.device)
             sz_overall = torch.clone(sz)
@@ -478,21 +480,24 @@ class Pix2PixTrainer():
 
 
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
-        # TODO: checkpoint grad_scaler state?
         if not model:
             model = self.pix2pix_model
         torch.save({'iters': self.iters, 'epoch': self.epoch, 
                     'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
-                    'optimizerG_state_dict': self.optimizerG.state_dict(), 'schedulerG_state_dict': self.schedulerG.state_dict(),
+                    'optimizerG_state_dict': self.optimizerG.state_dict(),
+                    'schedulerG_state_dict': self.schedulerG.state_dict(),
                     'optimizerD_state_dict': self.optimizerD.state_dict() if self.optimizerD is not None else None,
-                    'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None},
+                    'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None,
+                    'scaler_state_dict': self.grad_scaler.state_dict() if self.params.amp else None},
                    checkpoint_path)
         if is_best:
             torch.save({'iters': self.iters, 'epoch': self.epoch, 
                         'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
-                        'optimizerG_state_dict': self.optimizerG.state_dict(), 'schedulerG_state_dict': self.schedulerG.state_dict(),
+                        'optimizerG_state_dict': self.optimizerG.state_dict(),
+                        'schedulerG_state_dict': self.schedulerG.state_dict(),
                         'optimizerD_state_dict': self.optimizerD.state_dict() if self.optimizerD is not None else None,
-                        'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None},
+                        'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None,
+                        'scaler_state_dict': self.grad_scaler.state_dict() if self.params.amp else None},
                        checkpoint_path.replace('.tar', '_best.tar'))
 
     def restore_checkpoint(self, checkpoint_path, pretrained_model=False, pretrained_same_arch=True):
@@ -511,6 +516,8 @@ class Pix2PixTrainer():
             if not self.params.no_gan_loss:
                 self.optimizerD.load_state_dict(checkpoint['optimizerD_state_dict'])
                 self.schedulerD.load_state_dict(checkpoint['schedulerD_state_dict'])
+            if self.params.amp and 'scaler_state_dict' in checkpoint.keys() and checkpoint['scaler_state_dict'] is not None:
+                self.grad_scaler.load_state_dict(checkpoint['scaler_state_dict'])
 
     def run_generator_one_step(self, data):
         self.optimizerG.zero_grad()
