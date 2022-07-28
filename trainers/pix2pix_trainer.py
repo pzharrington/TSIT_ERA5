@@ -357,19 +357,35 @@ class Pix2PixTrainer():
         with torch.inference_mode():
             for idx, (image, target) in enumerate(self.valid_data_loader):
                 timer = time.time()
-
                 assert image.shape[1] == self.params.input_nc, f'image.shape: {image.shape}'
-
                 data = (image.to(self.device), target.to(self.device))
-
+                tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
                 data_time += time.time() - timer
+
+                timer = time.time()
+                if self.afno_validate or self.params.train_on_afno_wind:
+                    afno_wind_pred = self.afno_wind(data[0][:, :n_wind])
+                    if self.afno_validate:
+                        afno_pred = self.afno_precip(afno_wind_pred)
+                        afno_preds.append(afno_pred.detach().cpu())
+                        amps.setdefault('afno', []).append(
+                            torch.fft.rfft(afno_pred, dim=-1, norm='ortho')[:, 0].abs().mean(dim=-2).detach().cpu()
+                        )
+                        afno_unlog = unlog_tp_torch(afno_pred, self.params.precip_eps)
+                        afno_acc.append(weighted_acc_torch_channels(afno_unlog - self.tp_tm,
+                                                                    tar_unlog - self.tp_tm))
+                        afno_rmse.append(weighted_rmse_torch_channels(afno_unlog, tar_unlog))
+                    if self.params.add_grid:
+                        afno_wind_pred = torch.cat([afno_wind_pred, data[0][:, n_wind:]], dim=1)
+                    data = (afno_wind_pred, data[1])
+                afnotime += time.time() - timer
+
                 timer = time.time()
                 gen = self.generate_validation(data)
                 assert gen.shape[1] == 1, f'gen.shape: {gen.shape}'
                 g_time += time.time() - timer
                 timer = time.time()
                 gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
-                tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
                 acc.append(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
                                                        tar_unlog - self.tp_tm))
                 rmse.append(weighted_rmse_torch_channels(gen_unlog, tar_unlog))
@@ -390,19 +406,6 @@ class Pix2PixTrainer():
                     spec_metrics.setdefault(key, []).append(metric)
                     spec_metrics.setdefault('weighted_'+key, []).append(weighted_spec_dict[key])
                 spectime += time.time() - timer
-
-                timer = time.time()
-                if self.afno_validate:
-                    afno_pred = self.afno_precip(self.afno_wind(data[0][:, :n_wind]))
-                    afno_preds.append(afno_pred.detach().cpu())
-                    amps.setdefault('afno', []).append(
-                        torch.fft.rfft(afno_pred, dim=-1, norm='ortho')[:, 0].abs().mean(dim=-2).detach().cpu()
-                    )
-                    afno_unlog = unlog_tp_torch(afno_pred, self.params.precip_eps)
-                    afno_acc.append(weighted_acc_torch_channels(afno_unlog - self.tp_tm,
-                                                                tar_unlog - self.tp_tm))
-                    afno_rmse.append(weighted_rmse_torch_channels(afno_unlog, tar_unlog))
-                afnotime += time.time() - timer
 
                 preds.append(gen.detach().cpu())
                 targets.append(data[1].detach().cpu())
