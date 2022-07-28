@@ -87,25 +87,6 @@ class Pix2PixTrainer():
 
         jid = os.environ['SLURM_JOBID']
 
-        # init wandb
-        if self.log_to_wandb:
-            if self.sweep_id:
-                wandb.init()
-                hpo_config = wandb.config
-                self.params.update_params(hpo_config)
-                wandb.config.update(self.params.params)
-                logging.info('HPO sweep %s, job ID %s, trial params:'%(self.sweep_id, jid))
-                logging.info(self.params.log())
-            else:
-                exp_dir = os.path.join(*[self.root_dir, 'expts', self.config])
-                if not os.path.isdir(exp_dir):
-                    os.makedirs(exp_dir)
-                    os.makedirs(os.path.join(exp_dir, 'checkpoints/'))
-                self.params.experiment_dir = os.path.abspath(exp_dir)
-                self.params.checkpoint_path = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
-                wandb.init(config=self.params.params, name=self.params.name, project=self.params.project,
-                           entity=self.params.entity, resume=self.params.resuming, dir=exp_dir)
-
         # setup output dir
         if self.sweep_id:
             exp_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config, jid])
@@ -119,6 +100,22 @@ class Pix2PixTrainer():
 
         self.params.experiment_dir = os.path.abspath(exp_dir)
         self.params.checkpoint_path = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
+
+        # init wandb
+        if self.log_to_wandb:
+            if self.sweep_id:
+                self.params.SLURM_JOBID = jid
+                wandb_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config])
+                wandb.init(dir=wandb_dir)
+                hpo_config = wandb.config
+                self.params.update_params(hpo_config)
+                wandb.config.update(self.params.params)
+                logging.info('HPO sweep %s, job ID %s, trial params:'%(self.sweep_id, jid))
+                logging.info(self.params.log())
+            else:
+                wandb.init(config=self.params.params, name=self.params.name, project=self.params.project,
+                           entity=self.params.entity, resume=self.params.resuming, dir=exp_dir)
+
         # need initial value of resuming to be True even if it's the first run,
         # otherwise no wandb-resume.json gets created
         self.params.resuming = self.params.resuming and \
