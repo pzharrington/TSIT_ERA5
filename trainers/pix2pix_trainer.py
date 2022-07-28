@@ -165,7 +165,7 @@ class Pix2PixTrainer():
         else:
             self.schedulerD = None
 
-        if self.afno_validate:
+        if self.afno_validate or self.params.train_on_afno_wind:
 
             # backbone model
             self.params.N_in_channels = self.params.afno_wind_N_channels
@@ -178,14 +178,15 @@ class Pix2PixTrainer():
             self.afno_wind = afno_wind.to(self.device)
 
             # precip model
-            self.params.N_out_channels = len(self.params.out_channels)
-            afno_precip = AFNONet(self.params).to(self.device)
-            afno_precip = PrecipNet(self.params, backbone=afno_precip).to(self.device)
-            afno_precip = load_afno(afno_precip,
-                                    self.params,
-                                    self.params.afno_model_precip_path) # ,
-                                    # map_location=torch.device('cpu'))
-            self.afno_precip = afno_precip.to(self.device)
+            if self.afno_validate:
+                self.params.N_out_channels = len(self.params.out_channels)
+                afno_precip = AFNONet(self.params).to(self.device)
+                afno_precip = PrecipNet(self.params, backbone=afno_precip).to(self.device)
+                afno_precip = load_afno(afno_precip,
+                                        self.params,
+                                        self.params.afno_model_precip_path) # ,
+                                        # map_location=torch.device('cpu'))
+                self.afno_precip = afno_precip.to(self.device)
 
         if self.params.amp:
             self.grad_scaler = torch.cuda.amp.GradScaler()
@@ -276,12 +277,23 @@ class Pix2PixTrainer():
         g_time = 0.
         d_time = 0.
         data_time = 0.
+        afno_time = 0.
+        n_wind = self.params.afno_wind_N_channels
         for i, (image, target) in enumerate(self.train_data_loader, 0):
             self.iters += 1
             timer = time.time()
             data = (image.to(self.device), target.to(self.device))
             data_time += time.time() - timer
             self.pix2pix_model.zero_all_grad()
+
+            timer = time.time()
+            if self.params.train_on_afno_wind:
+                with torch.no_grad():
+                    afno_pred = self.afno_wind(data[0][:, :n_wind])
+                    if self.params.add_grid:
+                        afno_pred = torch.cat([afno_pred, data[0][:, n_wind:]], dim=1)
+                    data = (afno_pred, data[1])
+            afno_time += time.time() - timer
 
             # Training
             # train generator
@@ -307,7 +319,7 @@ class Pix2PixTrainer():
 
         tr_time = time.time() - tr_start
 
-        if self.log_to_screen: logging.info('Total=%f, G=%f, D=%f, data=%f, next=%f'%(tr_time, g_time, d_time, data_time, tr_time - (g_time+ d_time + data_time)))
+        if self.log_to_screen: logging.info('Total=%f, G=%f, D=%f, afno=%f, data=%f, next=%f'%(tr_time, g_time, d_time, afno_time, data_time, tr_time - (g_time+ d_time + afno_time + data_time)))
         self.logs =  {**self.g_losses, **self.d_losses} 
 
         if dist.is_initialized():
@@ -333,11 +345,7 @@ class Pix2PixTrainer():
         amps = {}
         spec_metrics = {}
         # inps = []
-        n_grid = self.params.N_grid_channels
         n_wind = self.params.afno_wind_N_channels
-        ch_idxs = self.params.in_channels
-        if self.params.add_grid:
-            ch_idxs = ch_idxs + list(range(-n_grid, 0))
         nc, iw ,ih = self.params.output_nc, self.params.img_size[0], self.params.img_size[1]
         loop = time.time()
         acctime = 0.
@@ -350,11 +358,7 @@ class Pix2PixTrainer():
             for idx, (image, target) in enumerate(self.valid_data_loader):
                 timer = time.time()
 
-                if self.afno_validate:
-                    inp = image.to(self.device)
-                    image = image[:, ch_idxs]
-                else:
-                    assert image.shape[1] == self.params.input_nc, f'image.shape: {image.shape}'
+                assert image.shape[1] == self.params.input_nc, f'image.shape: {image.shape}'
 
                 data = (image.to(self.device), target.to(self.device))
 
@@ -389,7 +393,7 @@ class Pix2PixTrainer():
 
                 timer = time.time()
                 if self.afno_validate:
-                    afno_pred = self.afno_precip(self.afno_wind(inp[:, :n_wind]))
+                    afno_pred = self.afno_precip(self.afno_wind(data[0][:, :n_wind]))
                     afno_preds.append(afno_pred.detach().cpu())
                     amps.setdefault('afno', []).append(
                         torch.fft.rfft(afno_pred, dim=-1, norm='ortho')[:, 0].abs().mean(dim=-2).detach().cpu()
