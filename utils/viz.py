@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import Normalize, TwoSlopeNorm
+from utils.weighted_acc_rmse import unlog_tp
 
 
 def viz_fields(flist):
@@ -12,7 +13,7 @@ def viz_fields(flist):
 
     rows = 3
     if afno is not None:
-        rows = 5
+        rows = 6
 
     f = plt.figure(figsize=(18,12*rows))
 
@@ -25,7 +26,7 @@ def viz_fields(flist):
     plt.title('TSIT')
 
     plt.subplot(rows,1,3)
-    err = (pred - tar) / (tar + 1)
+    err = (pred - tar) / (tar + 1.)
 
     if err.min() < 0. and err.max() > 0.:
         plt.imshow(err, norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
@@ -37,10 +38,62 @@ def viz_fields(flist):
             plt.title('AFNO')
 
             plt.subplot(rows,1,5)
-            plt.imshow((afno - tar) / (tar + 1),
+            afno_err = (afno - tar) / (tar + 1.)
+            plt.imshow(afno_err,
                        norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
             plt.title('AFNO relative error')
 
+            abs_err_diff = np.abs(afno_err) - np.abs(err)
+            if abs_err_diff.min() < 0. and abs_err_diff.max() > 0.:
+                plt.subplot(rows,1,6)
+                plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., abs_err_diff.min(), abs_err_diff.max()), cmap='RdYlGn')
+                plt.title('Difference in absolute relative error (AFNO - TSIT)')
+
+    plt.tight_layout()
+    return f
+
+
+def viz_density(flist):
+    pred, tar, afno = flist
+    pred = pred[0]
+    tar = tar[0]
+    afno = afno[0]
+
+    bins = 200
+    log = True
+    cumulative = False
+
+    plt_fmt = {
+        'tsit': 'g-',
+        'era5': 'k--',
+        'afno': 'r-',
+    }
+
+    f = plt.figure(figsize=(20, 10))
+
+    xylims = [((0., 9.75), (0.00001, 0.5)),
+              ((0., 4.), (0.075, 0.325)),
+              ((4., 6.), (0.04, 0.15)),
+              ((6., 9.75), (0.00001, 0.04))]
+
+    for i, (xlim, ylim) in enumerate(xylims):
+        plt.subplot(2, 2, i+1)
+        plt.hist(tar.ravel(), bins=bins, log=log, cumulative=cumulative, histtype='step', density=True,
+                 color='k', linestyle='--', label='era5')
+        plt.hist(pred.ravel(), bins=bins, log=log, cumulative=cumulative, histtype='step', density=True,
+                 color='g', linestyle='-', label='tsit')
+        if afno is not None:
+            plt.hist(afno.ravel(), bins=bins, log=log, cumulative=cumulative, histtype='step', density=True,
+                     color='r', linestyle='-', label='afno')
+        plt.xlim(xlim)
+        plt.ylim(ylim)
+        plt.title(f'{unlog_tp(xlim[0]):.4f} to {unlog_tp(xlim[1]):.4f} mm')
+        plt.legend()
+        if i in [1, 3]:
+            plt.ylabel(f'{"log " if log else ""}density')
+        if i in [3, 4]:
+            plt.xlabel('log(1 + TP / 1e-5)')
+    plt.suptitle(f'Precip {"C" if cumulative else "P"}DFs')
     plt.tight_layout()
     return f
 

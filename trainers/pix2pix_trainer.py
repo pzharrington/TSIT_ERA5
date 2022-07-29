@@ -13,7 +13,7 @@ from utils.weighted_acc_rmse import weighted_acc_torch_channels, \
     weighted_rmse_torch_channels, unlog_tp_torch
 from utils.spectra_metrics import spectra_metrics_rfft, \
     spectra_metrics_fft_input
-from utils.viz import viz_fields, viz_spectra
+from utils.viz import *
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
@@ -246,6 +246,9 @@ class Pix2PixTrainer():
             if self.log_to_wandb:
                 fig = viz_fields(fields)
                 self.logs['viz'] = wandb.Image(fig)
+                plt.close(fig)
+                fig = viz_density(fields)
+                self.logs['viz_density'] = wandb.Image(fig)
                 plt.close(fig)
                 fig = viz_spectra(spectra)
                 self.logs['viz_spec'] = wandb.Image(fig)

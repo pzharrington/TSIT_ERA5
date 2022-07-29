@@ -411,21 +411,21 @@ debug:
   pretrained_same_arch: !!bool True
   ## arch params
   use_vae: !!bool True
-  vae_full_res_start: !!bool True
-  num_D: 4
-  n_layers_D: 4
+  vae_full_res_start: !!bool False
+  num_D: 3
+  n_layers_D: 3
   nef: 8
   z_dim: 128
   ngf0: 64
   num_upsampling_blocks: 8
   cat_inp: !!bool True
   use_l1_loss: !!bool True
-  use_ff_loss: !!bool True
+  use_ff_loss: !!bool False
   freq_weighting_ffl: !!bool True
   lat_weighting_ffl: !!bool True
-  no_gan_loss: !!bool True
+  no_gan_loss: !!bool False
   no_ganFeat_loss: !!bool True
-  use_periodic_padding: !!bool True
+  use_periodic_padding: !!bool False
   norm_G: 'spectralfadebatch3x3'
   # norm_G: 'fadebatch3x3'
   ## hyperparams
