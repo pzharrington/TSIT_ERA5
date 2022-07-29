@@ -379,20 +379,34 @@ bs64_ganFeat_vae:
   ## logging
   resuming: !!bool True
 
-bs64_ganFeat_vae_sweep:
+bs64_ganFeat_vae_sweep: # v2
   <<: *base
   ## train params
   batch_size: 64
+  cat_inp: !!bool False
   add_grid: !!bool True
+  # orography: !!bool True
+  use_l1_loss: !!bool True
   train_on_afno_wind: !!bool True
   ## arch params
   use_vae: !!bool True
-  use_l1_loss: !!bool True
+  vae_full_res_start: !!bool True
+  use_periodic_padding: !!bool False
+  norm_G: 'spectralfadebatch3x3'
+  nef: 8
   ngf0: 64
+  num_D: 4
+  n_layers_D: 4
+  num_upsampling_blocks: 8
+  # z_dim: 128, 256
   ## hyperparams
+  lr: !!float 1.5e-4
+  beta1: !!float 0.95
+  lambda_feat: !!float 0.7
+  lambda_kld: !!float 0.6
   ## logging
-  log_steps_to_screen: !!bool True
-  resuming: !!bool False
+  log_steps_to_screen: !!bool False
+  resuming: !!bool True
 
 #######
 # debug
