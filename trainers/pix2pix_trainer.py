@@ -90,8 +90,29 @@ class Pix2PixTrainer():
 
         jid = os.environ['SLURM_JOBID']
 
-        # setup output dir
-        if self.sweep_id:
+        # init wandb
+        if self.log_to_wandb:
+            if self.sweep_id:
+                wandb_dir = os.environ['WANDB_DIR']
+                run_id = os.environ['WANDB_RUN_ID']
+                exp_dir = os.path.join(*[wandb_dir, run_id])
+                if not os.path.isdir(exp_dir):
+                    os.makedirs(exp_dir)
+                wandb.init(config=self.params.params, resume=self.params.resuming, dir=exp_dir)
+                assert run_id == wandb.run.id, f'$WANDB_RUN_ID = {run_id} but wandb.run.id = {wandb.run.id}'
+                hpo_config = wandb.config
+                self.params.update_params(hpo_config)
+                logging.info('HPO sweep %s, run ID %s, trial params:'%(self.sweep_id, run_id))
+                logging.info(self.params.log())
+                if self.params.resuming:
+                    wandb.mark_preempting()
+            else:
+                exp_dir = os.path.join(*[self.root_dir, 'expts', self.config])
+                if not os.path.isdir(exp_dir):
+                    os.makedirs(exp_dir)
+                wandb.init(config=self.params.params, name=self.params.name, project=self.params.project,
+                           entity=self.params.entity, resume=self.params.resuming, dir=exp_dir)
+        elif self.sweep_id:
             exp_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config, jid])
         else:
             exp_dir = os.path.join(*[self.root_dir, 'expts', self.config])
@@ -99,30 +120,11 @@ class Pix2PixTrainer():
         if self.world_rank==0:
             if not os.path.isdir(exp_dir):
                 os.makedirs(exp_dir)
+            if not os.path.isdir(os.path.join(exp_dir, 'checkpoints/')):
                 os.makedirs(os.path.join(exp_dir, 'checkpoints/'))
 
         self.params.experiment_dir = os.path.abspath(exp_dir)
         self.params.checkpoint_path = os.path.join(exp_dir, 'checkpoints/ckpt.tar')
-
-        # init wandb
-        if self.log_to_wandb:
-            if self.sweep_id:
-                self.params.SLURM_JOBID = jid
-                wandb_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config])
-                wandb.init(dir=wandb_dir)
-                hpo_config = wandb.config
-                self.params.update_params(hpo_config)
-                wandb.config.update(self.params.params)
-                logging.info('HPO sweep %s, job ID %s, trial params:'%(self.sweep_id, jid))
-                logging.info(self.params.log())
-            else:
-                wandb.init(config=self.params.params, name=self.params.name, project=self.params.project,
-                           entity=self.params.entity, resume=self.params.resuming, dir=exp_dir)
-
-        # need initial value of resuming to be True even if it's the first run,
-        # otherwise no wandb-resume.json gets created
-        self.params.resuming = self.params.resuming and \
-            (True if os.path.isfile(self.params.checkpoint_path) else False)
 
         if self.sweep_id and dist.is_initialized():
             from mpi4py import MPI
@@ -133,6 +135,11 @@ class Pix2PixTrainer():
                 self.params = None
             # Broadcast sweep config
             self.params = comm.bcast(self.params, root=0)
+
+        # need initial value of resuming to be True even if it's the first run,
+        # otherwise no wandb-resume.json gets created
+        self.params.resuming = self.params.resuming and os.path.isfile(self.params.checkpoint_path)
+
         # -- after here params should be finalized
         self.params.update_params({ 'afno_validate': self.afno_validate })
 
@@ -198,7 +205,7 @@ class Pix2PixTrainer():
         self.startEpoch = 0
 
         # self.params.resuming is False if there's no checkpoint file, in which
-        # case we can load the pretrained model, if using
+        # case we can load the pretrained model, if using one
         if self.params.resuming:
             logging.info("Loading checkpoint %s"%self.params.checkpoint_path)
             self.restore_checkpoint(self.params.checkpoint_path)

@@ -31,6 +31,10 @@ if __name__ == '__main__':
      
     trainer = Pix2PixTrainer(params, args)
     if args.sweep_id and trainer.world_rank==0:
+        wandb_dir = os.path.join(*[args.root_dir, 'sweeps', args.sweep_id, args.config])
+        if not os.path.isdir(wandb_dir):
+            os.makedirs(wandb_dir)
+        os.environ['WANDB_DIR'] = os.path.abspath(wandb_dir)
         wandb.agent(args.sweep_id, function=trainer.build_and_launch, count=1, project=trainer.params.project)
     else:
         trainer.build_and_launch()

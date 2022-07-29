@@ -37,7 +37,7 @@ base: &base
   afno_model_wind_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper/1/training_checkpoints/best_ckpt.tar'
   afno_patch_size: 8
   afno_num_blocks: 8
-  afno_acc_overall: 0.8051 # fixed AFNO ACC for full validation set
+  afno_acc_overall: !!float 0.8051 # fixed AFNO ACC for full validation set
 
   # model types
   model: 'pix2pix' # which model to use
@@ -81,13 +81,13 @@ base: &base
   lr: !!float 2E-4 # initial learning rate for adam
   D_steps_per_G: 1 # number of discriminator iterations per generator iterations
   use_spec_loss: !!bool False # if specified, use spectral loss term forG
-  lambda_spec: 1.  # spectral loss term weight
+  lambda_spec: !!float 1.  # spectral loss term weight
   use_l1_loss: !!bool False # if specified, use l1 loss term forG
-  lambda_l1: 1.  # l1 loss term weight
+  lambda_l1: !!float 1.  # l1 loss term weight
   use_ff_loss: !!bool False # not currently working with --amp
   freq_weighting_ffl: !!bool False # whether to give more weight to higher frequencies in FFLoss 
   lat_weighting_ffl: !!bool False # whether to give more weight to mid latitudes in FFLoss
-  lambda_ffl: 1. # ffl loss term weight
+  lambda_ffl: !!float 1. # ffl loss term weight
   pretrained: !!bool False # whether to use a pretrained model as parameter initialization
   pretrained_model_path: '/pscratch/sd/j/jpduncan/tsitprecip/experiments/expts/bs64_l1_only/checkpoints/ckpt.tar'
   pretrained_same_arch: !!bool True # whether pretrained model should have the same architecture as current model
@@ -148,7 +148,7 @@ bs64_l1_only:
   num_upsampling_blocks: 8
   use_periodic_padding: !!bool True
   ## hyperparams
-  lr: 5E-4
+  lr: !!float 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   ## logging
@@ -168,7 +168,7 @@ bs64_l1_only_afno_wind:
   num_upsampling_blocks: 8
   use_periodic_padding: !!bool False
   ## hyperparams
-  lr: 5E-4
+  lr: !!float 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   ## logging
@@ -189,7 +189,7 @@ bs64_l1_only_afno_wind_orography:
   num_upsampling_blocks: 8
   use_periodic_padding: !!bool False
   ## hyperparams
-  lr: 5E-4
+  lr: !!float 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   ## logging
@@ -225,7 +225,7 @@ bs64_l1_ffl:
   num_upsampling_blocks: 7
   use_periodic_padding: !!bool False
   ## hyperparams
-  lr: 5E-4
+  lr: !!float 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   lambda_l1: !!float 1.
@@ -247,7 +247,7 @@ bs64_ffl_only:
   num_upsampling_blocks: 7
   use_periodic_padding: !!bool False
   ## hyperparams
-  lr: 5E-4
+  lr: !!float 5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   lambda_ffl: !!float 1.
@@ -280,11 +280,11 @@ bs64_ganFeat_l1:
   use_periodic_padding: !!bool True
   norm_G: 'fadebatch3x3'
   ## hyperparams
-  lr: 3.5E-4
-  beta1: 0.75
-  beta2: 0.998
-  lambda_l1: 0.4
-  lambda_feat: 0.12
+  lr: !!float 3.5E-4
+  beta1: !!float 0.75
+  beta2: !!float 0.998
+  lambda_l1: !!float 0.4
+  lambda_feat: !!float 0.12
   ## logging
   resuming: !!bool True
 
@@ -302,11 +302,11 @@ bs64_ganFeat_l1_latgrid:
   use_periodic_padding: !!bool False
   norm_G: 'fadebatch3x3'
   ## hyperparams
-  lr: 3.5E-4
-  beta1: 0.75
-  beta2: 0.998
-  lambda_l1: 0.4
-  lambda_feat: 0.12
+  lr: !!float 3.5E-4
+  beta1: !!float 0.75
+  beta2: !!float 0.998
+  lambda_l1: !!float 0.4
+  lambda_feat: !!float 0.12
   ## logging
   resuming: !!bool True
 
@@ -327,11 +327,11 @@ bs64_ganFeat_l1_pretrained:
   ngf0: 64
   num_D: 4
   ## hyperparams
-  lr: 2.5E-4
-  beta1: 0.75
-  beta2: 0.998
-  lambda_l1: 0.2
-  lambda_feat: 0.12
+  lr: !!float 2.5E-4
+  beta1: !!float 0.75
+  beta2: !!float 0.998
+  lambda_l1: !!float 0.2
+  lambda_feat: !!float 0.12
   ## logging
   resuming: !!bool True
 
@@ -371,11 +371,11 @@ bs64_ganFeat_vae:
   ngf0: 64
   norm_G: 'fadebatch3x3'
   ## hyperparams
-  lr: 3.5E-4
-  beta1: 0.75
-  beta2: 0.998
-  lambda_l1: 0.4
-  lambda_feat: 0.12
+  lr: !!float 3.5E-4
+  beta1: !!float 0.75
+  beta2: !!float 0.998
+  lambda_l1: !!float 0.4
+  lambda_feat: !!float 0.12
   ## logging
   resuming: !!bool True
 
@@ -402,7 +402,7 @@ debug:
   <<: *base
   DEBUG: !!bool True
   ## train params
-  train_on_afno_wind: !!bool True
+  train_on_afno_wind: !!bool False
   batch_size: 32
   num_data_workers: 8 # batch size // 4
   add_grid: !!bool True
@@ -411,14 +411,14 @@ debug:
   pretrained_same_arch: !!bool True
   ## arch params
   use_vae: !!bool True
-  vae_full_res_start: !!bool False
-  num_D: 3
-  n_layers_D: 3
+  vae_full_res_start: !!bool True
+  num_D: 4
+  n_layers_D: 4
   nef: 8
   z_dim: 128
   ngf0: 64
-  num_upsampling_blocks: 8
-  cat_inp: !!bool True
+  # num_upsampling_blocks: 8
+  cat_inp: !!bool False
   use_l1_loss: !!bool True
   use_ff_loss: !!bool False
   freq_weighting_ffl: !!bool True
@@ -429,17 +429,17 @@ debug:
   norm_G: 'spectralfadebatch3x3'
   # norm_G: 'fadebatch3x3'
   ## hyperparams
-  lr: 2.5E-4
-  beta1: 0.75
-  beta2: 0.95
-  lambda_l1: 0.5
-  lambda_ffl: 1.0
-  lambda_feat: 0.75
-  lambda_kld: 0.6
+  # lr: 1.5E-4
+  beta1: !!float 0.95
+  beta2: !!float 0.95
+  lambda_l1: !!float 0.5
+  lambda_ffl: !!float 1.0
+  # lambda_feat: 0.7
+  lambda_kld: !!float 0.6
   # lambda_ffl: 1.
   ## logging
   log_to_wandb: !!bool True
   log_steps_to_screen: !!bool True
   log_every_n_steps: 100
-  save_checkpoint: !!bool False
-  resuming: !!bool False
+  save_checkpoint: !!bool True
+  resuming: !!bool True
