@@ -43,11 +43,11 @@ def viz_fields(flist):
                        norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
             plt.title('AFNO relative error')
 
-            abs_err_diff = np.abs(afno_err) - np.abs(err)
+            abs_err_diff = np.abs(err) - np.abs(afno_err)
             if abs_err_diff.min() < 0. and abs_err_diff.max() > 0.:
                 plt.subplot(rows,1,6)
-                plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., abs_err_diff.min(), abs_err_diff.max()), cmap='RdYlGn')
-                plt.title('Difference in absolute relative error (AFNO - TSIT)')
+                plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., abs_err_diff.min(), abs_err_diff.max()), cmap='bwr')
+                plt.title('Difference in absolute relative error (blue = TSIT better)')
 
     plt.tight_layout()
     return f
