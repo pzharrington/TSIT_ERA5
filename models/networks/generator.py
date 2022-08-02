@@ -33,7 +33,7 @@ class TSITGenerator(BaseNetwork):
             self.fc = nn.Linear(params.z_dim, 16 * nf * self.sw * self.sh)
         else:
             # Otherwise, we make the network deterministic by starting with
-            # downsampled input instead of random z
+            # downsampled input instead of random z, unless params.downsamp is False
             self.nz = self.params.z_dim if not self.params.downsamp else self.params.input_nc
             padder = PeriodicPad2d(1) if self.ppad else nn.Identity()
             convpad = 0 if self.ppad else 1
@@ -88,7 +88,8 @@ class TSITGenerator(BaseNetwork):
                 x = F.interpolate(content, size=(self.sw, self.sh))
             else:
                 # sample random noise
-                x = torch.randn(content.size(0), 3, self.sw, self.sh, dtype=torch.float32, device=content.get_device())
+                x = torch.randn(content.size(0), self.nz, self.sw, self.sh,
+                                dtype=torch.float32, device=content.get_device())
             x = self.fc(x) # (n, 16 * nf, 4, 8), assuming num_upsampling_blocks == 8
 
         if self.params.num_upsampling_blocks == 8:
