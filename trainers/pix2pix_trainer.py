@@ -33,6 +33,8 @@ class Pix2PixTrainer():
         self.root_dir = args.root_dir
         self.sub_dir = args.sub_dir
         self.config = args.config
+        self.acc_overall = 0.
+        self.best_acc_overall = 0.
         if self.sub_dir is not None:
             self.root_dir = os.path.join(self.root_dir, self.sub_dir)
 
@@ -225,7 +227,6 @@ class Pix2PixTrainer():
     def train(self):
         if self.log_to_screen:
             logging.info("Starting Training Loop...")
-        best = 0.
         for epoch in range(self.startEpoch, self.params.niter+self.params.niter_decay):
             self.epoch = epoch
             if dist.is_initialized():
@@ -242,8 +243,10 @@ class Pix2PixTrainer():
             if self.schedulerD is not None:
                 self.schedulerD.step()
 
-            is_best = self.logs['acc_overall'] >= best
-            best = max(self.logs['acc_overall'], best)
+            self.acc_overall = self.logs['acc_overall']
+            is_best = self.acc_overall >= self.best_acc_overall
+            if is_best:
+                self.best_acc_overall = self.acc_overall
 
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
@@ -251,15 +254,25 @@ class Pix2PixTrainer():
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best)
 
             if self.log_to_wandb:
-                fig = viz_fields(fields)
-                self.logs['viz'] = wandb.Image(fig)
-                plt.close(fig)
-                fig = viz_density(fields)
-                self.logs['viz_density'] = wandb.Image(fig)
-                plt.close(fig)
-                fig = viz_spectra(spectra)
-                self.logs['viz_spec'] = wandb.Image(fig)
-                plt.close(fig)
+                try:
+                    fig = viz_fields(fields)
+                    self.logs['viz'] = wandb.Image(fig)
+                    plt.close(fig)
+                except Exception as inst:
+                    logging.warning(f'viz_fields threw {type(inst)}!\n{str(inst)}')
+                try:
+                    fig = viz_density(fields)
+                    self.logs['viz_density'] = wandb.Image(fig)
+                    plt.close(fig)
+                except Exception as inst:
+                    logging.warning(f'viz_density threw {type(inst)}!\n{str(inst)}')
+                try:
+                    fig = viz_spectra(spectra)
+                    self.logs['viz_spec'] = wandb.Image(fig)
+                    plt.close(fig)
+                except Exception as inst:
+                    logging.warning(f'viz_spectra threw {type(inst)}!\n{str(inst)}')
+
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
                 self.logs['epoch'] = self.epoch + 1
                 wandb.log(self.logs)
@@ -495,7 +508,7 @@ class Pix2PixTrainer():
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
         if not model:
             model = self.pix2pix_model
-        torch.save({'iters': self.iters, 'epoch': self.epoch, 
+        torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.acc, 'best_acc_overall': self.best_acc_overall,
                     'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                     'optimizerG_state_dict': self.optimizerG.state_dict(),
                     'schedulerG_state_dict': self.schedulerG.state_dict(),
@@ -504,7 +517,7 @@ class Pix2PixTrainer():
                     'scaler_state_dict': self.grad_scaler.state_dict() if self.params.amp else None},
                    checkpoint_path)
         if is_best:
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.best_acc_overall,
                         'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                         'optimizerG_state_dict': self.optimizerG.state_dict(),
                         'schedulerG_state_dict': self.schedulerG.state_dict(),
@@ -515,6 +528,8 @@ class Pix2PixTrainer():
 
     def restore_checkpoint(self, checkpoint_path, pretrained_model=False, pretrained_same_arch=True):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.local_rank))
+        if 'best_acc_overall' in checkpoint.keys():
+            self.best_acc_overall = checkpoint['best_acc_overall']
         if not dist.is_initialized():
             # remove DDP 'module' prefix if not distributed
             for key in checkpoint.keys():

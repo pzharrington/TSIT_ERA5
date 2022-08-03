@@ -433,6 +433,32 @@ bs64_pretrained_gan_randn_nz3:
   ## logging
   resuming: !!bool True
 
+bs64_pretrained_gan_randn_nz3_decay10:
+  <<: *base
+  ## train params
+  batch_size: 64
+  niter: 30
+  niter_decay: 10
+  add_grid: !!bool True
+  train_on_afno_wind: !!bool True
+  orography: !!bool True
+  downsamp: !!bool False
+  ## arch params
+  z_dim: 3
+  use_l1_loss: !!bool True
+  no_gan_loss: !!bool False
+  no_ganFeat_loss: !!bool False
+  norm_G: 'spectralfadebatch3x3'
+  num_upsampling_blocks: 8
+  use_periodic_padding: !!bool False
+  ## hyperparams
+  lr: !!float 2E-4
+  beta1: !!float 0.85
+  beta2: !!float 0.96
+  lambda_l1: !!float 0.5
+  lambda_feat: !!float 0.8
+  ## logging
+  resuming: !!bool True
 
 #######
 # debug
