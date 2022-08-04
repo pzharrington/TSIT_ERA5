@@ -9,7 +9,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --image=nersc/pytorch:ngc-22.02-v0
 
-ROOT_DIR=$SCRATCH/tsitprecip/experiments
+ROOT_DIR=$SCRATCH/weatherbenching/ERA5_generative
 PYTHONUSERBASE=$HOME/.local/perlmutter/nersc-pytorch-22.02-v0
 
 export HDF5_USE_FILE_LOCKING=FALSE
