@@ -468,20 +468,20 @@ debug:
   <<: *base
   DEBUG: !!bool True
   ## train params
-  train_on_afno_wind: !!bool False
+  train_on_afno_wind: !!bool True
   batch_size: 32
   num_data_workers: 8 # batch size // 4
   add_grid: !!bool True
   orography: !!bool True
   pretrained: !!bool False
-  pretrained_same_arch: !!bool True
+  pretrained_same_arch: !!bool False
   ## arch params
   use_vae: !!bool True
   vae_full_res_start: !!bool True
   num_D: 4
   n_layers_D: 4
   nef: 8
-  z_dim: 128
+  z_dim: 256
   ngf0: 64
   # num_upsampling_blocks: 8
   cat_inp: !!bool False
@@ -501,11 +501,11 @@ debug:
   lambda_l1: !!float 0.5
   lambda_ffl: !!float 1.0
   # lambda_feat: 0.7
-  lambda_kld: !!float 0.6
+  lambda_kld: !!float 1.2
   # lambda_ffl: 1.
   ## logging
-  log_to_wandb: !!bool True
+  log_to_wandb: !!bool False
   log_steps_to_screen: !!bool True
-  log_every_n_steps: 100
+  log_every_n_steps: 50
   save_checkpoint: !!bool True
   resuming: !!bool True

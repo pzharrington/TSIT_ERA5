@@ -33,7 +33,6 @@ class Pix2PixTrainer():
         self.root_dir = args.root_dir
         self.sub_dir = args.sub_dir
         self.config = args.config
-        self.acc_overall = 0.
         self.best_acc_overall = 0.
         if self.sub_dir is not None:
             self.root_dir = os.path.join(self.root_dir, self.sub_dir)
@@ -243,12 +242,11 @@ class Pix2PixTrainer():
             if self.schedulerD is not None:
                 self.schedulerD.step()
 
-            self.acc_overall = self.logs['acc_overall']
-            is_best = self.acc_overall >= self.best_acc_overall
-            if is_best:
-                self.best_acc_overall = self.acc_overall
-
             if self.world_rank == 0:
+                is_best = self.logs['acc_overall'] >= self.best_acc_overall
+                if is_best:
+                    self.best_acc_overall = self.logs['acc_overall']
+
                 if self.params.save_checkpoint:
                     #checkpoint at the end of every epoch
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best)
@@ -274,6 +272,7 @@ class Pix2PixTrainer():
                     logging.warning(f'viz_spectra threw {type(inst)}!\n{str(inst)}')
 
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
+                self.logs['best_acc_overall'] = self.best_acc_overall
                 self.logs['epoch'] = self.epoch + 1
                 wandb.log(self.logs)
 
@@ -287,6 +286,7 @@ class Pix2PixTrainer():
                 logging.info('D losses = '+str(self.d_losses))
                 logging.info('ACC = %f'%self.logs['acc'])
                 logging.info('ACC overall = %f'%self.logs['acc_overall'])
+                logging.info('ACC overall best = %f'%self.best_acc_overall)
                 logging.info('RMSE = %f'%self.logs['rmse'])
                 logging.info('RMSE amp = %f'%self.logs['rmse_amp'])
                 logging.info('RMSE phase = %f'%self.logs['rmse_phase'])
@@ -411,6 +411,7 @@ class Pix2PixTrainer():
                 timer = time.time()
                 gen = self.generate_validation(data)
                 assert gen.shape[1] == 1, f'gen.shape: {gen.shape}'
+
                 g_time += time.time() - timer
                 timer = time.time()
                 gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
@@ -508,7 +509,7 @@ class Pix2PixTrainer():
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
         if not model:
             model = self.pix2pix_model
-        torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.acc, 'best_acc_overall': self.best_acc_overall,
+        torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.logs['acc_overall'], 'best_acc_overall': self.best_acc_overall,
                     'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                     'optimizerG_state_dict': self.optimizerG.state_dict(),
                     'schedulerG_state_dict': self.schedulerG.state_dict(),
@@ -517,7 +518,7 @@ class Pix2PixTrainer():
                     'scaler_state_dict': self.grad_scaler.state_dict() if self.params.amp else None},
                    checkpoint_path)
         if is_best:
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.best_acc_overall,
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.logs['acc_overall'],
                         'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                         'optimizerG_state_dict': self.optimizerG.state_dict(),
                         'schedulerG_state_dict': self.schedulerG.state_dict(),
