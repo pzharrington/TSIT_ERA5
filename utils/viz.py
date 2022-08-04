@@ -87,7 +87,7 @@ def viz_density(flist):
                      color='r', linestyle='-', label='afno')
         plt.xlim(xlim)
         plt.ylim(ylim)
-        plt.title(f'{unlog_tp(xlim[0]):.4f} to {unlog_tp(xlim[1]):.4f} mm')
+        plt.title(f'{unlog_tp(xlim[0]):.4f} to {unlog_tp(xlim[1]):.4f} m')
         plt.legend()
         if i in [1, 3]:
             plt.ylabel(f'{"log " if log else ""}density')
