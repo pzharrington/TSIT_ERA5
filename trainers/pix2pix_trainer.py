@@ -403,8 +403,7 @@ class Pix2PixTrainer():
                         afno_acc.append(weighted_acc_torch_channels(afno_unlog - self.tp_tm,
                                                                     tar_unlog - self.tp_tm))
                         afno_rmse.append(weighted_rmse_torch_channels(afno_unlog, tar_unlog))
-                    else:
-                        assert self.params.train_on_afno_wind
+                    if self.params.train_on_afno_wind:
                         if self.params.add_grid:
                             afno_wind_pred = torch.cat([afno_wind_pred, data[0][:, n_wind:]], dim=1)
                         data = (afno_wind_pred, data[1])
