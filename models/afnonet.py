@@ -284,5 +284,6 @@ def load_afno(model, params, checkpoint_file, map_location=None):
         model.load_state_dict(new_state_dict)
     except:
         model.load_state_dict(checkpoint['model_state'])
+    model.device = map_location
     model.eval()
     return model
