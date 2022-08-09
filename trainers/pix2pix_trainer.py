@@ -287,6 +287,9 @@ class Pix2PixTrainer():
                 logging.info('ACC = %f'%self.logs['acc'])
                 logging.info('ACC overall = %f'%self.logs['acc_overall'])
                 logging.info('ACC overall best = %f'%self.best_acc_overall)
+                if 'acc_ens' in self.logs.keys():
+                    logging.info('ACC ensemble member = %f'%self.logs['acc_ens_memb'])
+                    logging.info('ACC ensemble = %f'%self.logs['acc_ens'])
                 logging.info('RMSE = %f'%self.logs['rmse'])
                 logging.info('RMSE amp = %f'%self.logs['rmse_amp'])
                 logging.info('RMSE phase = %f'%self.logs['rmse_phase'])
@@ -370,6 +373,10 @@ class Pix2PixTrainer():
         rmse = []
         afno_acc = []
         afno_rmse = []
+        n_ens = self.params.n_ensemble
+        validate_ens = n_ens > 1 and (self.params.use_vae or not self.params.downsamp)
+        n_batches_ens = self.params.n_valid_batches_ensemble
+        ensemble_metrics = {}
         amps = {}
         spec_metrics = {}
         # inps = []
@@ -378,6 +385,7 @@ class Pix2PixTrainer():
         loop = time.time()
         acctime = 0.
         g_time = 0.
+        ens_time = 0.
         data_time = 0.
         spectime = 0.
         afnotime = 0.
@@ -412,8 +420,29 @@ class Pix2PixTrainer():
                 timer = time.time()
                 gen = self.generate_validation(data)
                 assert gen.shape[1] == 1, f'gen.shape: {gen.shape}'
-
                 g_time += time.time() - timer
+
+                timer = time.time()
+                if validate_ens and idx < n_batches_ens:
+                    acc_ = ensemble_metrics.setdefault('acc_ens_memb', [])
+                    acc_.append([])
+                    acc_ens = ensemble_metrics.setdefault('acc_ens', [])
+                    # acc_ens_unlog = ensemble_metrics['acc_ens_unlog'].setdefault([])
+                    gen_ens = torch.empty(n_ens, *gen.shape, device=gen.device)
+                    for i in range(n_ens):
+                        gen_ens[i] = gen if i == 0 else self.generate_validation(data)
+                        gen_unlog = unlog_tp_torch(gen_ens[i], self.params.precip_eps)
+                        acc_[-1].append(torch.unsqueeze(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
+                                                                                    tar_unlog - self.tp_tm), dim=0))
+
+                    acc_[-1] = torch.cat(acc_[-1]).mean(dim=0)
+                    ens_unlog = unlog_tp_torch(gen_ens.mean(dim=0), self.params.precip_eps)
+                    acc_ens.append(weighted_acc_torch_channels(ens_unlog - self.tp_tm,
+                                                               tar_unlog - self.tp_tm))
+                    assert acc_[-1].shape[0] == acc_ens[-1].shape[0], \
+                        f'acc_[-1].shape: {acc_[-1].shape} | acc_ens[-1].shape: {acc_ens[-1].shape}'
+                ens_time += time.time() - timer
+
                 timer = time.time()
                 gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
                 acc.append(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
@@ -450,6 +479,9 @@ class Pix2PixTrainer():
         for key, metric in spec_metrics.items():
             spec_metrics[key] = torch.cat(metric).mean().item()
 
+        for key, metric in ensemble_metrics.items():
+            ensemble_metrics[key] = torch.cat(metric)
+
         if self.afno_validate:
             afno_preds = torch.cat(afno_preds)
             afno_acc = torch.cat(afno_acc)
@@ -457,14 +489,22 @@ class Pix2PixTrainer():
 
         if dist.is_initialized():
             # average acc across ranks
-            sz = torch.tensor(preds.shape[0]).float().to(self.device)
-            sz_overall = torch.clone(sz)
+            sz_overall = torch.tensor(preds.shape[0]).float().to(self.device)
             dist.all_reduce(sz_overall)
-            acc_overall = acc.mean() * sz
+            acc_overall = acc.sum()
             dist.all_reduce(acc_overall)
             acc_overall = acc_overall.item() / sz_overall.item()
+
+            for key, metric in ensemble_metrics.items():
+                sz_overall = torch.tensor(metric.shape[0]).float().to(self.device)
+                dist.all_reduce(sz_overall)
+                metric = metric.sum()
+                dist.all_reduce(metric)
+                ensemble_metrics[key] = metric.item() / sz_overall.item()
         else:
             acc_overall = acc.mean().item()
+            for key, metric in ensemble_metrics.items():
+                ensemble_metrics[key] = metric.item()
 
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
 
@@ -500,9 +540,10 @@ class Pix2PixTrainer():
             self.logs.update({'rmse_afno': afno_rmse.mean().item()})
             # log fixed overall afno validation acc
             self.logs.update({'acc_afno_overall': self.params.afno_acc_overall})
+        self.logs.update(ensemble_metrics)
         self.logs.update(spec_metrics)
         agg = time.time() - timer
-        if self.log_to_screen: logging.info('Total=%f, G=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ data_time + acctime + spectime + afnotime + agg)))
+        if self.log_to_screen: logging.info('Total=%f, G=%f, ens=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, ens_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ ens_time + data_time + acctime + spectime + afnotime + agg)))
 
         return valid_time, fields, spectra
 

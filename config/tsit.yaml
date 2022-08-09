@@ -91,6 +91,8 @@ base: &base
   pretrained: !!bool False # whether to use a pretrained model as parameter initialization
   pretrained_model_path: '/pscratch/sd/j/jpduncan/tsitprecip/experiments/expts/bs64_l1_only/checkpoints/ckpt.tar'
   pretrained_same_arch: !!bool True # whether pretrained model should have the same architecture as current model
+  n_ensemble: 30 # number of outputs in each ensemble
+  n_valid_batches_ensemble: 10 # number of valid batches to predict via ensemble
 
   # for discriminators
   ndf: 64 # number of discrim filters in first conv layer
@@ -472,12 +474,12 @@ debug:
   batch_size: 32
   num_data_workers: 8 # batch size // 4
   add_grid: !!bool True
-  orography: !!bool True
+  orography: !!bool False
   pretrained: !!bool False
   pretrained_same_arch: !!bool False
   ## arch params
   use_vae: !!bool True
-  vae_full_res_start: !!bool True
+  vae_full_res_start: !!bool False
   num_D: 4
   n_layers_D: 4
   nef: 8
@@ -496,7 +498,7 @@ debug:
   # norm_G: 'fadebatch3x3'
   ## hyperparams
   # lr: 1.5E-4
-  beta1: !!float 0.95
+  beta1: !!float 0.85
   beta2: !!float 0.95
   lambda_l1: !!float 0.5
   lambda_ffl: !!float 1.0
@@ -507,5 +509,5 @@ debug:
   log_to_wandb: !!bool False
   log_steps_to_screen: !!bool True
   log_every_n_steps: 50
-  save_checkpoint: !!bool True
-  resuming: !!bool True
+  save_checkpoint: !!bool False
+  resuming: !!bool False
