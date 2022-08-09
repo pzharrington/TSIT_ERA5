@@ -53,11 +53,21 @@ def viz_fields(flist):
     return f
 
 
+def viz_std_field(std_field):
+    std_field = std_field[0]
+    sc = np.quantile(std_field, 0.99)
+    f = plt.figure(figsize=(18, 12))
+    plt.imshow(std_field, cmap='inferno', norm=Normalize(0., sc))
+    plt.colorbar(shrink=0.6, extend='max')
+    plt.title('Mean ensemble STD')
+    return f
+
+
 def viz_density(flist):
     pred, tar, afno = flist
     pred = pred[0]
     tar = tar[0]
-    afno = afno[0]
+    afno = afno[0] if afno is not None else None
 
     bins = 200
     log = True
@@ -121,7 +131,7 @@ def viz_spectra(spectra):
     plt.xlabel('wave number')
     plt.ylabel('amplitude')
     plt.legend()
-    plt.title(f'Power spectra +/- std (n = {n})')
+    plt.title(f'Power spectra +/- STD (n = {n})')
 
     plt.subplot(2, 1, 2)
     for key in spec_mean.keys():
@@ -135,6 +145,6 @@ def viz_spectra(spectra):
     plt.xlabel('wave number')
     plt.ylabel('amplitude')
     plt.legend()
-    plt.title(f'Power spectra +/- std err (n = {n})')
+    plt.title(f'Power spectra +/- std. err. (n = {n})')
 
     return f
