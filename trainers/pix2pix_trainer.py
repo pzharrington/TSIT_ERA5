@@ -531,7 +531,9 @@ class Pix2PixTrainer():
                   # inps[sample_idx].detach().cpu().numpy(),
                   afno_samp]
 
-        ensemble_std_field = ensemble_metrics.pop('std_field', None).cpu().numpy()
+        ensemble_std_field = ensemble_metrics.pop('std_field', None)
+        if ensemble_std_field is not None:
+            ensemble_std_field = ensemble_std_field.cpu().numpy()
 
         spectra_mean = {}
         spectra_std = {}
