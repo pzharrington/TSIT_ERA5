@@ -37,7 +37,7 @@ base: &base
   afno_model_wind_path: '/pscratch/sd/s/shas1693/results/era5_wind/paper/1/training_checkpoints/best_ckpt.tar'
   afno_patch_size: 8
   afno_num_blocks: 8
-  afno_acc_overall: !!float 0.8051 # fixed AFNO ACC for full validation set
+  afno_acc_overall: !!float 0.8053 # fixed AFNO ACC for full validation set
 
   # model types
   model: 'pix2pix' # which model to use
@@ -89,10 +89,10 @@ base: &base
   lat_weighting_ffl: !!bool False # whether to give more weight to mid latitudes in FFLoss
   lambda_ffl: !!float 1. # ffl loss term weight
   pretrained: !!bool False # whether to use a pretrained model as parameter initialization
-  pretrained_model_path: '/pscratch/sd/j/jpduncan/tsitprecip/experiments/expts/bs64_l1_only/checkpoints/ckpt.tar'
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind/checkpoints/ckpt_best.tar'
   pretrained_same_arch: !!bool True # whether pretrained model should have the same architecture as current model
   n_ensemble: 30 # number of outputs in each ensemble
-  n_valid_batches_ensemble: 10 # number of valid batches to predict via ensemble
+  n_valid_batches_ensemble: 10 # number of valid batches to predict via ensemble, per device
 
   # for discriminators
   ndf: 64 # number of discrim filters in first conv layer
@@ -124,19 +124,6 @@ base: &base
 # pretraining
 #############
 
-bs64_l1_only_sweep:
-  <<: *base
-  ## train params
-  batch_size: 64
-  add_grid: !!bool True
-  ## arch params
-  use_l1_loss: !!bool True
-  no_gan_loss: !!bool True
-  no_ganFeat_loss: !!bool True
-  ## hyperparams
-  lambda_l1: !!float 1.
-  ## logging
-
 bs64_l1_only:
   <<: *base
   ## train params
@@ -148,9 +135,8 @@ bs64_l1_only:
   no_ganFeat_loss: !!bool True
   norm_G: 'spectralfadebatch3x3'
   num_upsampling_blocks: 8
-  use_periodic_padding: !!bool True
   ## hyperparams
-  lr: !!float 5E-4
+  lr: !!float 6.5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   ## logging
@@ -170,13 +156,13 @@ bs64_l1_only_afno_wind:
   num_upsampling_blocks: 8
   use_periodic_padding: !!bool False
   ## hyperparams
-  lr: !!float 5E-4
+  lr: !!float 6.5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   ## logging
   resuming: !!bool True
 
-bs64_l1_only_afno_wind_orography:
+bs64_l1_only_afno_wind_orog:
   <<: *base
   ## train params
   batch_size: 64
@@ -191,275 +177,111 @@ bs64_l1_only_afno_wind_orography:
   num_upsampling_blocks: 8
   use_periodic_padding: !!bool False
   ## hyperparams
-  lr: !!float 5E-4
+  ## hyperparams
+  lr: !!float 6.5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   ## logging
   resuming: !!bool True
 
-bs64_l1_ffl_sweep:
+bs64_l1_only_afno_wind_randn:
   <<: *base
   ## train params
   batch_size: 64
   add_grid: !!bool True
+  train_on_afno_wind: !!bool True
+  downsamp: !!bool False
   ## arch params
+  z_dim: 3
   use_l1_loss: !!bool True
-  use_ff_loss: !!bool True
   no_gan_loss: !!bool True
   no_ganFeat_loss: !!bool True
-  norm_G: 'fadebatch3x3'
-  num_upsampling_blocks: 7
+  norm_G: 'spectralfadebatch3x3'
+  num_upsampling_blocks: 8
   use_periodic_padding: !!bool False
   ## hyperparams
-  ## logging
-
-bs64_l1_ffl:
-  <<: *base
-  ## train params
-  batch_size: 64
-  add_grid: !!bool True
-  ## arch params
-  use_l1_loss: !!bool True
-  use_ff_loss: !!bool True
-  no_gan_loss: !!bool True
-  no_ganFeat_loss: !!bool True
-  norm_G: 'fadebatch3x3'
-  num_upsampling_blocks: 7
-  use_periodic_padding: !!bool False
   ## hyperparams
-  lr: !!float 5E-4
+  lr: !!float 6.5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
-  lambda_l1: !!float 1.
-  lambda_ffl: !!float 1.
   ## logging
   resuming: !!bool True
-
-bs64_ffl_only:
-  <<: *base
-  ## train params
-  batch_size: 64
-  add_grid: !!bool True
-  ## arch params
-  use_l1_loss: !!bool False
-  use_ff_loss: !!bool True
-  no_gan_loss: !!bool True
-  no_ganFeat_loss: !!bool True
-  norm_G: 'fadebatch3x3'
-  num_upsampling_blocks: 7
-  use_periodic_padding: !!bool False
-  ## hyperparams
-  lr: !!float 5E-4
-  beta1: !!float 0.85
-  beta2: !!float 0.95
-  lambda_ffl: !!float 1.
-  ## logging
-  resuming: !!bool True
-
 
 #####
 # GAN
 #####
 
-bs64_ganFeat_sweep:
-  <<: *base
-  ## train params
-  batch_size: 64
-  ## arch params
-  norm_G: 'fadebatch3x3'
-  ## logging
-
-bs64_ganFeat_l1:
-  <<: *base
-  ## train params
-  batch_size: 64
-  ## arch params
-  num_D: 4
-  ngf0: 64
-  num_upsampling_blocks: 8
-  cat_inp: !!bool True
-  use_l1_loss: !!bool True
-  use_periodic_padding: !!bool True
-  norm_G: 'fadebatch3x3'
-  ## hyperparams
-  lr: !!float 3.5E-4
-  beta1: !!float 0.75
-  beta2: !!float 0.998
-  lambda_l1: !!float 0.4
-  lambda_feat: !!float 0.12
-  ## logging
-  resuming: !!bool True
-
-bs64_ganFeat_l1_latgrid:
+bs64_pretrained_l1:
   <<: *base
   ## train params
   batch_size: 64
   add_grid: !!bool True
-  ## arch params
-  num_D: 4
-  ngf0: 64
-  num_upsampling_blocks: 8
-  cat_inp: !!bool True
-  use_l1_loss: !!bool True
-  use_periodic_padding: !!bool False
-  norm_G: 'fadebatch3x3'
-  ## hyperparams
-  lr: !!float 3.5E-4
-  beta1: !!float 0.75
-  beta2: !!float 0.998
-  lambda_l1: !!float 0.4
-  lambda_feat: !!float 0.12
-  ## logging
-  resuming: !!bool True
-
-bs64_ganFeat_l1_pretrained:
-  <<: *base
-  ## train params
-  batch_size: 64
+  train_on_afno_wind: !!bool True
   pretrained: !!bool True
-  add_grid: !!bool True
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind/checkpoints/ckpt_best.tar'
+  ## arch params
   use_l1_loss: !!bool True
   no_gan_loss: !!bool False
-  no_ganFeat_loss: !!bool False
-  ## arch params
-  use_periodic_padding: !!bool True
-  cat_inp: !!bool True
+  no_ganFeat_loss: !!bool True
   norm_G: 'spectralfadebatch3x3'
   num_upsampling_blocks: 8
-  ngf0: 64
-  num_D: 4
+  use_periodic_padding: !!bool False
   ## hyperparams
   lr: !!float 2.5E-4
-  beta1: !!float 0.75
-  beta2: !!float 0.998
-  lambda_l1: !!float 0.2
-  lambda_feat: !!float 0.12
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_l1: !!float 0.25
   ## logging
   resuming: !!bool True
 
-bs64_ganFeat_l1_pretrained_sweep: # v2
+bs64_gan_l1:
   <<: *base
   ## train params
   batch_size: 64
-  pretrained: !!bool True
   add_grid: !!bool True
-  use_l1_loss: !!bool True
+  train_on_afno_wind: !!bool True
   ## arch params
-  use_periodic_padding: !!bool True
-  cat_inp: !!bool True
+  use_l1_loss: !!bool True
+  no_gan_loss: !!bool False
+  no_ganFeat_loss: !!bool True
   norm_G: 'spectralfadebatch3x3'
   num_upsampling_blocks: 8
-  ngf0: 64
-  num_D: 4
-  ## hyperparams
-  ## logging
-  log_steps_to_screen: !!bool True
-  resuming: !!bool False
-
-bs64_ganFeat_vae:
-  <<: *base
-  ## train params
-  batch_size: 64
-  add_grid: !!bool True
-  ## arch params
-  use_vae: True
-  cat_inp: !!bool True
-  use_l1_loss: !!bool True
   use_periodic_padding: !!bool False
-  num_upsampling_blocks: 8
-  nef: 16
-  z_dim: 256
-  num_D: 4
-  ngf0: 64
-  norm_G: 'fadebatch3x3'
   ## hyperparams
-  lr: !!float 3.5E-4
-  beta1: !!float 0.75
-  beta2: !!float 0.998
-  lambda_l1: !!float 0.4
-  lambda_feat: !!float 0.12
+  lr: !!float 2.5E-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_l1: !!float 1.0
   ## logging
   resuming: !!bool True
 
-bs64_ganFeat_vae_sweep: # v2
+bs64_vae:
   <<: *base
   ## train params
   batch_size: 64
-  cat_inp: !!bool False
   add_grid: !!bool True
   # orography: !!bool True
-  use_l1_loss: !!bool True
   train_on_afno_wind: !!bool True
   ## arch params
   use_vae: !!bool True
   vae_full_res_start: !!bool True
+  pretrained_same_arch: !!bool False
   use_periodic_padding: !!bool False
   norm_G: 'spectralfadebatch3x3'
-  nef: 8
+  z_dim: 256
+  nef: 16
   ngf0: 64
   num_D: 4
   n_layers_D: 4
   num_upsampling_blocks: 8
-  # z_dim: 128, 256
   ## hyperparams
-  lr: !!float 1.5e-4
-  beta1: !!float 0.95
-  lambda_feat: !!float 0.7
-  lambda_kld: !!float 0.6
+  lr: !!float 2.5e-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_l1: !!float 0.5
+  lambda_feat: !!float 0.5
   ## logging
   log_steps_to_screen: !!bool False
-  resuming: !!bool True
-
-bs64_pretrained_gan_randn_nz3:
-  <<: *base
-  ## train params
-  batch_size: 64
-  add_grid: !!bool True
-  train_on_afno_wind: !!bool True
-  orography: !!bool True
-  downsamp: !!bool False
-  ## arch params
-  z_dim: 3
-  use_l1_loss: !!bool True
-  no_gan_loss: !!bool False
-  no_ganFeat_loss: !!bool False
-  norm_G: 'spectralfadebatch3x3'
-  num_upsampling_blocks: 8
-  use_periodic_padding: !!bool False
-  ## hyperparams
-  lr: !!float 2E-4
-  beta1: !!float 0.85
-  beta2: !!float 0.96
-  lambda_l1: !!float 0.5
-  lambda_feat: !!float 0.8
-  ## logging
-  resuming: !!bool True
-
-bs64_pretrained_gan_randn_nz3_decay10:
-  <<: *base
-  ## train params
-  batch_size: 64
-  niter: 30
-  niter_decay: 10
-  add_grid: !!bool True
-  train_on_afno_wind: !!bool True
-  orography: !!bool True
-  downsamp: !!bool False
-  ## arch params
-  z_dim: 3
-  use_l1_loss: !!bool True
-  no_gan_loss: !!bool False
-  no_ganFeat_loss: !!bool False
-  norm_G: 'spectralfadebatch3x3'
-  num_upsampling_blocks: 8
-  use_periodic_padding: !!bool False
-  ## hyperparams
-  lr: !!float 2E-4
-  beta1: !!float 0.85
-  beta2: !!float 0.96
-  lambda_l1: !!float 0.5
-  lambda_feat: !!float 0.8
-  ## logging
   resuming: !!bool True
 
 #######
