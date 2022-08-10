@@ -72,9 +72,9 @@ class TSITGenerator(BaseNetwork):
     def forward(self, input, real, z=None):
         content = input
         style =  real
-        ft0, ft1, ft2, ft3, ft4, ft5, ft6, ft7, ft8 = self.content_stream(content)
-        sft0, sft1, sft2, sft3, sft4, sft5, sft6, sft7, sft8 = self.style_stream(style) if not self.params.no_ss else [None] * 9
-        nft0, nft1, nft2, nft3, nft4, nft5, nft6, nft7, nft8 = self.noise_stream(style) if self.params.additive_noise else [None] * 9
+        ft1, ft2, ft3, ft4, ft5, ft6, ft7, ft8 = self.content_stream(content)
+        sft1, sft2, sft3, sft4, sft5, sft6, sft7, sft8 = self.style_stream(style) if not self.params.no_ss else [None] * 8
+        nft1, nft2, nft3, nft4, nft5, nft6, nft7, nft8 = self.noise_stream(style) if self.params.additive_noise else [None] * 8
         if self.params.use_vae:
             # we sample z from unit normal and reshape the tensor
             if z is None:

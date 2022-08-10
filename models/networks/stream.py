@@ -70,12 +70,12 @@ class Stream(BaseNetwork):
         x7 = self.res_7(x7)    # (n,1024,2,4) # (n, 16 * nf, 8, 16)
 
         if self.params.num_upsampling_blocks == 7:
-            return [x0, x1, x2, x3, x4, x5, x6, x7, None]
+            return [x1, x2, x3, x4, x5, x6, x7, None]
 
         x8 = self.down(x7)
         x8 = self.res_8(x8)  # (n, 16 * nf, 4, 8)
 
-        return [x0, x1, x2, x3, x4, x5, x6, x7, x8]
+        return [x1, x2, x3, x4, x5, x6, x7, x8]
 
 
 # Additive noise stream inspired by StyleGAN.
@@ -85,28 +85,35 @@ class NoiseStream(BaseNetwork):
     def __init__(self, params):
         super().__init__()
         self.params = params
-        nf = params.ngf
+        nf0 = 2*params.ngf0
+
+        self.img_size_log2 = 2**int(np.log2(params.img_size[0])), \
+                2**int(np.log2(params.img_size[1]))
 
         iloc, isc = 1., 0.05
         scalers = []
-        for i in range(8):
-            val = torch.from_numpy(np.random.normal(loc=iloc, scale=isc, size=(1,nf,1,1)).astype(np.float32))
+
+        for _ in range(params.num_upsampling_blocks):
+            val = torch.from_numpy(np.random.normal(loc=iloc, scale=isc, size=(1,nf0,1,1)).astype(np.float32))
             scalers.append(nn.Parameter(val, requires_grad=True))
-            nf = min(nf*2, self.params.ngf*16)
+            nf0 = min(nf0*2, 16*self.params.ngf)
+
         self.featmult = nn.ParameterList(scalers)
 
     def forward(self,input):
         # assume that input shape is (n,c,h,w)
-        n,h,w = input.shape[0], input.shape[2], input.shape[3]
+        n,h,w = input.shape[0], self.img_size_log2[0], self.img_size_log2[1]
 
-        nf = self.params.ngf
+        nf = 2*self.params.ngf0
         out = []
-        for i in range(8):
-            noise = 2.*torch.randn((n, 1, h, w), device=input.device)
+        for i in range(self.params.num_upsampling_blocks):
+            noise = 2.*torch.randn((n, nf, h, w), device=input.device)
             out.append(noise*self.featmult[i])
             nf = min(nf*2, self.params.ngf*16)
             h //= 2
             w //= 2
 
-        return out
+        if self.params.num_upsampling_blocks == 7:
+            out.append(None)
 
+        return out
