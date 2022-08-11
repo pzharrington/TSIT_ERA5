@@ -244,10 +244,12 @@ class Pix2PixTrainer():
 
             if self.world_rank == 0:
                 is_best = self.logs['acc_overall'] >= self.best_acc_overall
-                if is_best:
+                is_nan = np.isnan(self.logs['acc_overall'])
+
+                if is_best or (self.best_acc_overall == 0. and is_nan):
                     self.best_acc_overall = self.logs['acc_overall']
 
-                if self.params.save_checkpoint:
+                if self.params.save_checkpoint and not is_nan:
                     #checkpoint at the end of every epoch
                     self.save_checkpoint(self.params.checkpoint_path, is_best=is_best)
 
