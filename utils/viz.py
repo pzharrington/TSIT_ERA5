@@ -53,13 +53,45 @@ def viz_fields(flist):
     return f
 
 
-def viz_std_field(std_field):
-    std_field = std_field[0]
-    sc = np.quantile(std_field, 0.99)
-    f = plt.figure(figsize=(18, 12))
+def viz_ens(fields):
+    tar, mean_field, std_field = fields
+    f = plt.figure(figsize=(32, 24))
+
+    err = (mean_field - tar) / (tar + 1.)
+
+    plt.subplot(2,2,1)
+    # sc = np.quantile(std_field, 0.999)
+    sc = np.max(std_field)
     plt.imshow(std_field, cmap='inferno', norm=Normalize(0., sc))
-    plt.colorbar(shrink=0.6, extend='max')
-    plt.title('Mean ensemble STD')
+    plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
+    plt.title(f'Standard deviation field (scaled by max={sc:.4g})')
+
+    plt.subplot(2,2,2)
+    # sc = np.max(tar)
+    # plt.imshow(mean_field, cmap='Blues', norm=Normalize(0., sc))
+    # plt.title('Mean')
+    plt.imshow(err, norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
+    plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
+    plt.title('Mean field relative error w.r.t. target')
+
+    sc = np.max(std_field)
+
+    plt.subplot(2,2,3)
+    std_field_lt = std_field.copy()
+    std_field_lt[err >= 0] = np.nan
+    plt.imshow(std_field_lt, cmap='inferno', norm=Normalize(0., sc))
+    plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
+    plt.title(f'Standard deviation field, relative error < 0 (max={np.nanmax(std_field_lt):.4g})')
+
+    plt.subplot(2,2,4)
+    std_field_gt = std_field.copy()
+    std_field_gt[err <= 0] = np.nan
+    plt.imshow(std_field_gt, cmap='inferno', norm=Normalize(0., sc))
+    plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
+    plt.title(f'Standard deviation field, relative error > 0 (max={np.nanmax(std_field_gt):.4g})')
+
+    plt.suptitle('Ensemble')
+    plt.tight_layout()
     return f
 
 

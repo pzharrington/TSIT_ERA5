@@ -237,7 +237,7 @@ class Pix2PixTrainer():
 
             start = time.time()
             tr_time = self.train_one_epoch()
-            valid_time, fields, spectra, ens_std_field = self.validate_one_epoch()
+            valid_time, fields, spectra, ens_fields = self.validate_one_epoch()
             self.schedulerG.step()
             if self.schedulerD is not None:
                 self.schedulerD.step()
@@ -272,13 +272,13 @@ class Pix2PixTrainer():
                     plt.close(fig)
                 except Exception as inst:
                     logging.warning(f'viz_spectra threw {type(inst)}!\n{str(inst)}')
-                if ens_std_field is not None:
+                if ens_fields is not None:
                     try:
-                        fig = viz_std_field(ens_std_field)
-                        self.logs['viz_ensemble_std'] = wandb.Image(fig)
+                        fig = viz_ens(ens_fields)
+                        self.logs['viz_ensemble'] = wandb.Image(fig)
                         plt.close(fig)
                     except Exception as inst:
-                        logging.warning(f'viz_std_field threw {type(inst)}!\n{str(inst)}')
+                        logging.warning(f'viz_ens threw {type(inst)}!\n{str(inst)}')
 
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
                 self.logs['best_acc_overall'] = self.best_acc_overall
@@ -386,6 +386,7 @@ class Pix2PixTrainer():
         validate_ens = n_ens > 1 and (self.params.use_vae or not self.params.downsamp)
         n_batches_ens = self.params.n_valid_batches_ensemble
         ensemble_metrics = {}
+        ensemble_fields = None
         amps = {}
         spec_metrics = {}
         # inps = []
@@ -436,7 +437,6 @@ class Pix2PixTrainer():
                     acc_ = ensemble_metrics.setdefault('acc_ens_memb', [])
                     acc_.append([])
                     acc_ens = ensemble_metrics.setdefault('acc_ens', [])
-                    std_field = ensemble_metrics.setdefault('std_field', [])
                     gen_ens = torch.empty(n_ens, *gen.shape, device=gen.device)
                     for i in range(n_ens):
                         gen_ens[i] = gen if i == 0 else self.generate_validation(data)
@@ -445,8 +445,12 @@ class Pix2PixTrainer():
                                                                                     tar_unlog - self.tp_tm), dim=0))
 
                     acc_[-1] = torch.cat(acc_[-1]).mean(dim=0)
-                    std_field.append(gen_ens.std(dim=0))
-                    ens_unlog = unlog_tp_torch(gen_ens.mean(dim=0), self.params.precip_eps)
+                    ens_mean = gen_ens.mean(dim=0)
+                    if idx == 0:
+                        ensemble_fields = (data[1][0, 0].cpu().numpy(),
+                                           ens_mean[0, 0].cpu().numpy(),
+                                           gen_ens[:, 0, 0].std(dim=0).cpu().numpy())
+                    ens_unlog = unlog_tp_torch(ens_mean, self.params.precip_eps)
                     acc_ens.append(weighted_acc_torch_channels(ens_unlog - self.tp_tm,
                                                                tar_unlog - self.tp_tm))
                     assert acc_[-1].shape[0] == acc_ens[-1].shape[0], \
@@ -511,15 +515,12 @@ class Pix2PixTrainer():
                 for key, metric in ensemble_metrics.items():
                     metric = metric.sum(dim=0)
                     dist.all_reduce(metric)
-                    if key != 'std_field':
-                        metric = metric.squeeze().item()
+                    metric = metric.squeeze().item()
                     ensemble_metrics[key] = metric / sz_overall.item()
         else:
             acc_overall = acc.mean().item()
             for key, metric in ensemble_metrics.items():
-                ensemble_metrics[key] = metric.mean(dim=0)
-                if key != 'std_field':
-                    ensemble_metrics[key] = ensemble_metrics[key].squeeze().item()
+                ensemble_metrics[key] = metric.mean(dim=0).squeeze().item()
 
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
 
@@ -564,7 +565,7 @@ class Pix2PixTrainer():
         agg = time.time() - timer
         if self.log_to_screen: logging.info('Total=%f, G=%f, ens=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, ens_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ ens_time + data_time + acctime + spectime + afnotime + agg)))
 
-        return valid_time, fields, spectra, ensemble_std_field
+        return valid_time, fields, spectra, ensemble_fields
 
 
     def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
