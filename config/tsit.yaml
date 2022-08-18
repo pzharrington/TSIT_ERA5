@@ -38,6 +38,7 @@ base: &base
   afno_patch_size: 8
   afno_num_blocks: 8
   afno_acc_overall: !!float 0.8053 # fixed AFNO ACC for full validation set
+  afno_rmse_overall: !!float 0.0014 # fixed AFNO RMSE for full validation set
 
   # model types
   model: 'pix2pix' # which model to use
@@ -260,6 +261,8 @@ bs64_vae:
   ## train params
   batch_size: 64
   add_grid: !!bool True
+  pretrained: !!bool True
+  no_ganFeat_loss: !!bool False
   # orography: !!bool True
   train_on_afno_wind: !!bool True
   ## arch params
@@ -293,8 +296,8 @@ debug:
   DEBUG: !!bool True
   ## train params
   train_on_afno_wind: !!bool True
-  batch_size: 32
-  num_data_workers: 8 # batch size // 4
+  batch_size: 64
+  num_data_workers: 16
   add_grid: !!bool True
   orography: !!bool False
   pretrained: !!bool False

@@ -13,6 +13,8 @@ from utils.weighted_acc_rmse import weighted_acc_torch_channels, \
     weighted_rmse_torch_channels, unlog_tp_torch
 from utils.spectra_metrics import spectra_metrics_rfft, \
     spectra_metrics_fft_input
+from utils.precip_hists import precip_histc, precip_histc2, \
+    precip_histc3, binned_precip_log_l1
 from utils.viz import *
 import numpy as np
 import matplotlib.pyplot as plt
@@ -33,7 +35,8 @@ class Pix2PixTrainer():
         self.root_dir = args.root_dir
         self.sub_dir = args.sub_dir
         self.config = args.config
-        self.best_acc_overall = 0.
+        self.best_acc_overall = np.nan
+        self.best_binned_log_l1 = np.nan
         if self.sub_dir is not None:
             self.root_dir = os.path.join(self.root_dir, self.sub_dir)
 
@@ -57,7 +60,6 @@ class Pix2PixTrainer():
             params.log()
         self.log_to_screen = params.log_to_screen and self.world_rank==0
         self.log_to_wandb = params.log_to_wandb and self.world_rank==0
-        self.afno_validate = params.afno_validate and self.world_rank==0
         params.name = args.config
 
         self.device = torch.cuda.current_device()
@@ -139,10 +141,8 @@ class Pix2PixTrainer():
 
         # need initial value of resuming to be True even if it's the first run,
         # otherwise no wandb-resume.json gets created
-        self.params.resuming = self.params.resuming and os.path.isfile(self.params.checkpoint_path)
-
         # -- after here params should be finalized
-        self.params.update_params({ 'afno_validate': self.afno_validate })
+        self.params.resuming = self.params.resuming and os.path.isfile(self.params.checkpoint_path)
 
         if self.world_rank == 0:
             hparams = ruamelDict()
@@ -176,7 +176,7 @@ class Pix2PixTrainer():
         else:
             self.schedulerD = None
 
-        if self.afno_validate or self.params.train_on_afno_wind:
+        if self.params.afno_validate or self.params.train_on_afno_wind:
 
             # backbone model
             self.params.N_in_channels = self.params.afno_wind_N_channels
@@ -189,7 +189,7 @@ class Pix2PixTrainer():
             self.afno_wind = afno_wind.to(self.device)
 
             # precip model
-            if self.afno_validate:
+            if self.params.afno_validate:
                 self.params.N_out_channels = len(self.params.out_channels)
                 afno_precip = AFNONet(self.params).to(self.device)
                 afno_precip = PrecipNet(self.params, backbone=afno_precip).to(self.device)
@@ -237,21 +237,31 @@ class Pix2PixTrainer():
 
             start = time.time()
             tr_time = self.train_one_epoch()
-            valid_time, fields, spectra, ens_fields = self.validate_one_epoch()
+            valid_time, fields, spectra, ens_fields, precip_hists = self.validate_one_epoch()
             self.schedulerG.step()
             if self.schedulerD is not None:
                 self.schedulerD.step()
 
             if self.world_rank == 0:
-                is_best = self.logs['acc_overall'] >= self.best_acc_overall
-                is_nan = np.isnan(self.logs['acc_overall'])
+                is_nan = np.isnan(self.logs['acc_overall']) or np.isnan(self.logs['binned_log_l1'])
 
-                if is_best or (self.best_acc_overall == 0. and is_nan):
+                is_best_acc = not is_nan and \
+                    (np.isnan(self.best_acc_overall) or self.logs['acc_overall'] >= self.best_acc_overall)
+
+                is_best_binned_log_l1 = not is_nan and \
+                    (np.isnan(self.best_binned_log_l1) or self.logs['binned_log_l1'] <= self.best_binned_log_l1)
+
+                if is_best_acc:
                     self.best_acc_overall = self.logs['acc_overall']
+
+                if is_best_binned_log_l1:
+                    self.best_binned_log_l1 = self.logs['binned_log_l1']
 
                 if self.params.save_checkpoint and not is_nan:
                     #checkpoint at the end of every epoch
-                    self.save_checkpoint(self.params.checkpoint_path, is_best=is_best)
+                    self.save_checkpoint(self.params.checkpoint_path,
+                                         is_best_acc=is_best_acc,
+                                         is_best_binned_log_l1=is_best_binned_log_l1)
 
             if self.log_to_wandb:
                 try:
@@ -261,7 +271,7 @@ class Pix2PixTrainer():
                 except Exception as inst:
                     logging.warning(f'viz_fields threw {type(inst)}!\n{str(inst)}')
                 try:
-                    fig = viz_density(fields)
+                    fig = viz_density(precip_hists)
                     self.logs['viz_density'] = wandb.Image(fig)
                     plt.close(fig)
                 except Exception as inst:
@@ -282,6 +292,7 @@ class Pix2PixTrainer():
 
                 self.logs['learning_rate_G'] = self.optimizerG.param_groups[0]['lr']
                 self.logs['best_acc_overall'] = self.best_acc_overall
+                self.logs['best_binned_log_l1'] = self.best_binned_log_l1
                 self.logs['epoch'] = self.epoch + 1
                 wandb.log(self.logs)
 
@@ -300,8 +311,10 @@ class Pix2PixTrainer():
                     logging.info('ACC ensemble member = %f'%self.logs['acc_ens_memb'])
                     logging.info('ACC ensemble = %f'%self.logs['acc_ens'])
                 logging.info('RMSE = %f'%self.logs['rmse'])
+                logging.info('RMSE overall = %f'%self.logs['rmse_overall'])
                 logging.info('RMSE amp = %f'%self.logs['rmse_amp'])
                 logging.info('RMSE phase = %f'%self.logs['rmse_phase'])
+                logging.info('binned log L1 = %f'%self.logs['binned_log_l1'])
                 logging.info('FFL = %f'%self.logs['ffl'])
                 logging.info('FCL = %f'%self.logs['fcl'])
 
@@ -383,12 +396,17 @@ class Pix2PixTrainer():
         afno_acc = []
         afno_rmse = []
         n_ens = self.params.n_ensemble
-        validate_ens = n_ens > 1 and (self.params.use_vae or not self.params.downsamp)
+        validate_ens = n_ens > 1 and (self.params.additive_noise or
+                                      self.params.use_vae or
+                                      not self.params.downsamp)
         n_batches_ens = self.params.n_valid_batches_ensemble
         ensemble_metrics = {}
         ensemble_fields = None
+        ens_hists = {}
         amps = {}
         spec_metrics = {}
+        precip_hists = {}
+        binned_log_l1 = {}
         # inps = []
         n_wind = self.params.afno_wind_N_channels
         nc, iw ,ih = self.params.output_nc, self.params.img_size[0], self.params.img_size[1]
@@ -399,6 +417,7 @@ class Pix2PixTrainer():
         data_time = 0.
         spectime = 0.
         afnotime = 0.
+        histtime = 0.
         # with torch.no_grad():
         with torch.inference_mode():
             for idx, (image, target) in enumerate(self.valid_data_loader):
@@ -409,9 +428,10 @@ class Pix2PixTrainer():
                 data_time += time.time() - timer
 
                 timer = time.time()
-                if self.afno_validate or self.params.train_on_afno_wind:
+                afno_pred = None
+                if self.params.afno_validate or self.params.train_on_afno_wind:
                     afno_wind_pred = self.afno_wind(data[0][:, :n_wind])
-                    if self.afno_validate:
+                    if self.params.afno_validate:
                         afno_pred = self.afno_precip(afno_wind_pred)
                         afno_preds.append(afno_pred.detach().cpu())
                         amps.setdefault('afno', []).append(
@@ -432,31 +452,7 @@ class Pix2PixTrainer():
                 assert gen.shape[1] == 1, f'gen.shape: {gen.shape}'
                 g_time += time.time() - timer
 
-                timer = time.time()
-                if validate_ens and idx < n_batches_ens:
-                    acc_ = ensemble_metrics.setdefault('acc_ens_memb', [])
-                    acc_.append([])
-                    acc_ens = ensemble_metrics.setdefault('acc_ens', [])
-                    gen_ens = torch.empty(n_ens, *gen.shape, device=gen.device)
-                    for i in range(n_ens):
-                        gen_ens[i] = gen if i == 0 else self.generate_validation(data)
-                        gen_unlog = unlog_tp_torch(gen_ens[i], self.params.precip_eps)
-                        acc_[-1].append(torch.unsqueeze(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
-                                                                                    tar_unlog - self.tp_tm), dim=0))
-
-                    acc_[-1] = torch.cat(acc_[-1]).mean(dim=0)
-                    ens_mean = gen_ens.mean(dim=0)
-                    if idx == 0:
-                        ensemble_fields = (data[1][0, 0].cpu().numpy(),
-                                           ens_mean[0, 0].cpu().numpy(),
-                                           gen_ens[:, 0, 0].std(dim=0).cpu().numpy())
-                    ens_unlog = unlog_tp_torch(ens_mean, self.params.precip_eps)
-                    acc_ens.append(weighted_acc_torch_channels(ens_unlog - self.tp_tm,
-                                                               tar_unlog - self.tp_tm))
-                    assert acc_[-1].shape[0] == acc_ens[-1].shape[0], \
-                        f'acc_[-1].shape: {acc_[-1].shape} | acc_ens[-1].shape: {acc_ens[-1].shape}'
-                ens_time += time.time() - timer
-
+                # ACC and RMSE
                 timer = time.time()
                 gen_unlog = unlog_tp_torch(gen, self.params.precip_eps)
                 acc.append(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
@@ -464,6 +460,73 @@ class Pix2PixTrainer():
                 rmse.append(weighted_rmse_torch_channels(gen_unlog, tar_unlog))
                 acctime += time.time() - timer
 
+                # precip histograms
+                timer = time.time()
+                if self.params.afno_validate:
+                    pred_hists_, tar_hists_, afno_hists_ = precip_histc3(gen, data[1], afno_pred)
+                else:
+                    pred_hists_, tar_hists_ = precip_histc2(gen, data[1], afno_pred)
+                    afno_hists_ = None
+                precip_hists.setdefault('pred', []).append(pred_hists_.detach().cpu())
+                precip_hists.setdefault('target', []).append(tar_hists_.detach().cpu())
+                binned_log_l1.setdefault('binned_log_l1', []).append(
+                    binned_precip_log_l1(gen, data[1], pred_hists_, tar_hists_)
+                )
+                if afno_hists_ is not None:
+                    precip_hists.setdefault('afno', []).append(afno_hists_.detach().cpu())
+                histtime += time.time() - timer
+
+                # validate ensemble
+                timer = time.time()
+                if validate_ens and idx < n_batches_ens:
+                    acc_ = ensemble_metrics.setdefault('acc_ens_memb', [])
+                    acc_.append([])
+                    binned_log_l1_ = ensemble_metrics.setdefault('binned_log_l1_ens_memb', [])
+                    binned_log_l1_.append([])
+                    acc_ens = ensemble_metrics.setdefault('acc_ens', [])
+                    binned_log_l1_ens = ensemble_metrics.setdefault('binned_log_l1_ens', [])
+                    gen_ens = torch.empty(n_ens, *gen.shape, device=gen.device)
+                    ens_memb_hists = torch.empty(n_ens, *tar_hists_.shape, device=gen.device)
+                    for i in range(n_ens):
+                        # gen_ens_ = gen if i == 0 else self.generate_validation(data)
+                        ens_memb = self.generate_validation(data)
+                        gen_unlog = unlog_tp_torch(ens_memb, self.params.precip_eps)
+                        acc_[-1].append(
+                            torch.unsqueeze(weighted_acc_torch_channels(gen_unlog - self.tp_tm,
+                                                                        tar_unlog - self.tp_tm), dim=0)
+                        )
+                        ens_memb_hist = precip_histc(ens_memb)
+                        binned_log_l1_[-1].append(
+                            torch.unsqueeze(binned_precip_log_l1(ens_memb, data[1],
+                                                                 ens_memb_hist, tar_hists_), dim=0)
+                        )
+                        gen_ens[i] = ens_memb
+                        ens_memb_hists[i] = ens_memb_hist
+
+                    acc_[-1] = torch.cat(acc_[-1]).mean(dim=0)
+                    binned_log_l1_[-1] = torch.cat(binned_log_l1_[-1]).mean(dim=0)
+
+                    ens_mean = gen_ens.mean(dim=0)
+                    ens_unlog = unlog_tp_torch(ens_mean, self.params.precip_eps)
+                    acc_ens.append(weighted_acc_torch_channels(ens_unlog - self.tp_tm,
+                                                               tar_unlog - self.tp_tm))
+                    ens_hists.setdefault('ens', []).append(precip_histc(ens_mean))
+                    ens_hists.setdefault('ens_memb', []).append(ens_memb_hists.mean(dim=0))
+                    ens_hists.setdefault('target', []).append(tar_hists_)
+                    binned_log_l1_ens.append(binned_precip_log_l1(ens_mean, data[1],
+                                                                  ens_hists['ens'][-1], tar_hists_))
+                    assert acc_[-1].shape[0] == acc_ens[-1].shape[0], \
+                        f'acc_[-1].shape: {acc_[-1].shape} | acc_ens[-1].shape: {acc_ens[-1].shape}'
+
+                    if idx == 0:
+                        ensemble_fields = [data[1][0, 0].cpu().numpy(),
+                                           afno_pred[0, 0].cpu().numpy(),
+                                           ens_mean[0, 0].cpu().numpy(),
+                                           gen_ens[:, 0, 0].std(dim=0).cpu().numpy()]
+
+                ens_time += time.time() - timer
+
+                # spectra metrics
                 timer = time.time()
                 spec_dict = spectra_metrics_rfft(gen, data[1])
                 amps.setdefault('tsit', []).append(spec_dict.pop('pred_fft'))
@@ -489,14 +552,26 @@ class Pix2PixTrainer():
         targets = torch.cat(targets)
         acc = torch.cat(acc)
         rmse = torch.cat(rmse)
-        # inps = torch.cat(inps)
+
         for key, metric in spec_metrics.items():
             spec_metrics[key] = torch.cat(metric).mean().item()
 
         for key, metric in ensemble_metrics.items():
             ensemble_metrics[key] = torch.cat(metric)
 
-        if self.afno_validate:
+        for key, metric in binned_log_l1.items():
+            binned_log_l1[key] = torch.cat(binned_log_l1[key])
+
+        for key, hists in precip_hists.items():
+            precip_hists[key] = torch.cat(hists).detach().cpu().numpy()
+
+        for key, hists in ens_hists.items():
+            ens_hists[key] = torch.cat(hists).detach().cpu().numpy()
+
+        if ensemble_fields is not None:
+            ensemble_fields.append(ens_hists)
+
+        if self.params.afno_validate:
             afno_preds = torch.cat(afno_preds)
             afno_acc = torch.cat(afno_acc)
             afno_rmse = torch.cat(afno_rmse)
@@ -509,6 +584,15 @@ class Pix2PixTrainer():
             dist.all_reduce(acc_overall)
             acc_overall = acc_overall.item() / sz_overall.item()
 
+            rmse_overall = rmse.sum()
+            dist.all_reduce(rmse_overall)
+            rmse_overall = rmse_overall.item() / sz_overall.item()
+
+            for key, metric in binned_log_l1.items():
+                binned_log_l1[key] = metric.sum()
+                dist.all_reduce(binned_log_l1[key])
+                binned_log_l1[key] = binned_log_l1[key].item() / sz_overall.item()
+
             if 'acc_ens' in ensemble_metrics.keys():
                 sz_overall = torch.tensor(ensemble_metrics['acc_ens'].shape[0]).float().to(self.device)
                 dist.all_reduce(sz_overall)
@@ -519,12 +603,15 @@ class Pix2PixTrainer():
                     ensemble_metrics[key] = metric / sz_overall.item()
         else:
             acc_overall = acc.mean().item()
+            rmse_overall = rmse.mean().item()
             for key, metric in ensemble_metrics.items():
                 ensemble_metrics[key] = metric.mean(dim=0).squeeze().item()
+            for key, metric in binned_log_l1.items():
+                binned_log_l1[key] = metric.mean(dim=0).squeeze().item()
 
         sample_idx = np.random.randint(max(preds.size()[0], targets.size()[0]))
 
-        if self.afno_validate:
+        if self.params.afno_validate:
             afno_samp = afno_preds[sample_idx].detach().cpu().numpy()
         else:
             afno_samp = None
@@ -533,10 +620,6 @@ class Pix2PixTrainer():
                   targets[sample_idx].detach().cpu().numpy(),
                   # inps[sample_idx].detach().cpu().numpy(),
                   afno_samp]
-
-        ensemble_std_field = ensemble_metrics.pop('std_field', None)
-        if ensemble_std_field is not None:
-            ensemble_std_field = ensemble_std_field.cpu().numpy()
 
         spectra_mean = {}
         spectra_std = {}
@@ -555,23 +638,31 @@ class Pix2PixTrainer():
         self.logs.update({'acc': acc.mean().item()})
         self.logs.update({'rmse': rmse.mean().item()})
         self.logs.update({'acc_overall': acc_overall})
-        if self.afno_validate:
+        self.logs.update({'rmse_overall': rmse_overall})
+        if self.params.afno_validate:
             self.logs.update({'acc_afno': afno_acc.mean().item()})
             self.logs.update({'rmse_afno': afno_rmse.mean().item()})
             # log fixed overall afno validation acc
             self.logs.update({'acc_afno_overall': self.params.afno_acc_overall})
+            self.logs.update({'rmse_afno_overall': self.params.afno_rmse_overall})
+            self.logs.update({'binned_log_l1_afno': self.params.afno_binned_log_l1})
         self.logs.update(ensemble_metrics)
         self.logs.update(spec_metrics)
+        self.logs.update(binned_log_l1)
         agg = time.time() - timer
-        if self.log_to_screen: logging.info('Total=%f, G=%f, ens=%f, data=%f, acc=%f, spec=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, ens_time, data_time, acctime, spectime, afnotime, agg, valid_time - (g_time+ ens_time + data_time + acctime + spectime + afnotime + agg)))
+        if self.log_to_screen: logging.info('Total=%f, G=%f, ens=%f, data=%f, acc=%f, spec=%f, hists=%f, afno=%f, agg=%f, next=%f'%(valid_time, g_time, ens_time, data_time, acctime, spectime, histtime, afnotime, agg, valid_time - (g_time+ ens_time + data_time + acctime + spectime + histtime + afnotime + agg)))
 
-        return valid_time, fields, spectra, ensemble_fields
+        return valid_time, fields, spectra, ensemble_fields, precip_hists
 
 
-    def save_checkpoint(self, checkpoint_path, is_best=False, model=None):
+    def save_checkpoint(self, checkpoint_path, is_best_acc=False, is_best_binned_log_l1=False, model=None):
         if not model:
             model = self.pix2pix_model
-        torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.logs['acc_overall'], 'best_acc_overall': self.best_acc_overall,
+        torch.save({'iters': self.iters, 'epoch': self.epoch,
+                    'acc_overall': self.logs['acc_overall'],
+                    'binned_log_l1': self.logs['binned_log_l1'],
+                    'best_acc_overall': self.best_acc_overall,
+                    'best_binned_log_l1': self.best_binned_log_l1,
                     'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                     'optimizerG_state_dict': self.optimizerG.state_dict(),
                     'schedulerG_state_dict': self.schedulerG.state_dict(),
@@ -579,8 +670,10 @@ class Pix2PixTrainer():
                     'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None,
                     'scaler_state_dict': self.grad_scaler.state_dict() if self.params.amp else None},
                    checkpoint_path)
-        if is_best:
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'acc_overall': self.logs['acc_overall'],
+        if is_best_acc:
+            torch.save({'iters': self.iters, 'epoch': self.epoch,
+                        'acc_overall': self.logs['acc_overall'],
+                        'binned_log_l1': self.logs['binned_log_l1'],
                         'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
                         'optimizerG_state_dict': self.optimizerG.state_dict(),
                         'schedulerG_state_dict': self.schedulerG.state_dict(),
@@ -588,11 +681,25 @@ class Pix2PixTrainer():
                         'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None,
                         'scaler_state_dict': self.grad_scaler.state_dict() if self.params.amp else None},
                        checkpoint_path.replace('.tar', '_best.tar'))
+        if is_best_binned_log_l1:
+            torch.save({'iters': self.iters, 'epoch': self.epoch,
+                        'acc_overall': self.logs['acc_overall'],
+                        'binned_log_l1': self.logs['binned_log_l1'],
+                        'model_state_G': model.save_state('generator'), 'model_state_D': model.save_state('discriminator'), 'model_state_E': model.save_state('encoder'),
+                        'optimizerG_state_dict': self.optimizerG.state_dict(),
+                        'schedulerG_state_dict': self.schedulerG.state_dict(),
+                        'optimizerD_state_dict': self.optimizerD.state_dict() if self.optimizerD is not None else None,
+                        'schedulerD_state_dict': self.schedulerD.state_dict() if self.schedulerD is not None else None,
+                        'scaler_state_dict': self.grad_scaler.state_dict() if self.params.amp else None},
+                       checkpoint_path.replace('.tar', '_best_binned_log_l1.tar'))
+
 
     def restore_checkpoint(self, checkpoint_path, pretrained_model=False, pretrained_same_arch=True):
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.local_rank))
-        if 'best_acc_overall' in checkpoint.keys():
+        if 'best_acc_overall' in checkpoint.keys() and not pretrained_model:
             self.best_acc_overall = checkpoint['best_acc_overall']
+        if 'best_binned_log_l1' in checkpoint.keys() and not pretrained_model:
+            self.best_binned_log_l1 = checkpoint['best_binned_log_l1']
         if not dist.is_initialized():
             # remove DDP 'module' prefix if not distributed
             for key in checkpoint.keys():
