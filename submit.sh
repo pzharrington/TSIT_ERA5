@@ -2,7 +2,7 @@
 #SBATCH --time=01:00:00
 #SBATCH -C gpu
 #SBATCH --account=m4134_g
-#SBATCH -q regular_ss10
+#SBATCH -q regular
 #SBATCH --nodes=4
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-node=4
