@@ -39,6 +39,7 @@ base: &base
   afno_num_blocks: 8
   afno_acc_overall: !!float 0.8053 # fixed AFNO ACC for full validation set
   afno_rmse_overall: !!float 0.0014 # fixed AFNO RMSE for full validation set
+  afno_binned_log_l1: !!float 4.3413 # fixed AFNO binned log L1 for full validation set
 
   # model types
   model: 'pix2pix' # which model to use
@@ -208,6 +209,27 @@ bs64_l1_only_afno_wind_randn:
   ## logging
   resuming: !!bool True
 
+bs64_l1_only_afno_wind_noise:
+  <<: *base
+  ## train params
+  batch_size: 64
+  add_grid: !!bool True
+  train_on_afno_wind: !!bool True
+  additive_noise: !!bool True
+  ## arch params
+  use_l1_loss: !!bool True
+  no_gan_loss: !!bool True
+  no_ganFeat_loss: !!bool True
+  norm_G: 'spectralfadebatch3x3'
+  num_upsampling_blocks: 8
+  use_periodic_padding: !!bool False
+  ## hyperparams
+  lr: !!float 6.5E-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  ## logging
+  resuming: !!bool True
+
 #####
 # GAN
 #####
@@ -256,18 +278,22 @@ bs64_gan_l1:
   ## logging
   resuming: !!bool True
 
-bs64_vae:
+bs64_gan:
   <<: *base
   ## train params
   batch_size: 64
+  niter: 30
+  niter_decay: 10
+  cat_inp: !!bool True
   add_grid: !!bool True
+  additive_noise: !!bool True
   pretrained: !!bool True
+  use_l1_loss: !!bool False
   no_ganFeat_loss: !!bool False
-  # orography: !!bool True
   train_on_afno_wind: !!bool True
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind/checkpoints/ckpt_best.tar'
   ## arch params
-  use_vae: !!bool True
-  vae_full_res_start: !!bool True
+  use_vae: !!bool False
   pretrained_same_arch: !!bool False
   use_periodic_padding: !!bool False
   norm_G: 'spectralfadebatch3x3'
@@ -281,7 +307,111 @@ bs64_vae:
   lr: !!float 2.5e-4
   beta1: !!float 0.85
   beta2: !!float 0.95
-  lambda_l1: !!float 0.5
+  lambda_feat: !!float 0.5
+  ## logging
+  log_steps_to_screen: !!bool False
+  resuming: !!bool True
+
+bs64_gan_orog:
+  <<: *base
+  ## train params
+  batch_size: 64
+  niter: 30
+  niter_decay: 10
+  orography: !!bool True
+  cat_inp: !!bool True
+  add_grid: !!bool True
+  pretrained: !!bool True
+  additive_noise: !!bool True
+  use_l1_loss: !!bool False
+  no_ganFeat_loss: !!bool False
+  train_on_afno_wind: !!bool True
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind_orog/checkpoints/ckpt_best.tar'
+  ## arch params
+  use_vae: !!bool False
+  pretrained_same_arch: !!bool False
+  use_periodic_padding: !!bool False
+  norm_G: 'spectralfadebatch3x3'
+  z_dim: 256
+  nef: 16
+  ngf0: 64
+  num_D: 4
+  n_layers_D: 4
+  num_upsampling_blocks: 8
+  ## hyperparams
+  lr: !!float 2.5e-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_feat: !!float 0.5
+  ## logging
+  log_steps_to_screen: !!bool False
+  resuming: !!bool True
+
+bs64_vae:
+  <<: *base
+  ## train params
+  batch_size: 64
+  niter: 30
+  niter_decay: 10
+  cat_inp: !!bool True
+  add_grid: !!bool True
+  pretrained: !!bool True
+  additive_noise: !!bool True
+  use_l1_loss: !!bool False
+  no_ganFeat_loss: !!bool False
+  train_on_afno_wind: !!bool True
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind/checkpoints/ckpt_best.tar'
+  ## arch params
+  use_vae: !!bool True
+  pretrained_same_arch: !!bool False
+  vae_full_res_start: !!bool True
+  use_periodic_padding: !!bool False
+  norm_G: 'spectralfadebatch3x3'
+  z_dim: 256
+  nef: 16
+  ngf0: 64
+  num_D: 4
+  n_layers_D: 4
+  num_upsampling_blocks: 8
+  ## hyperparams
+  lr: !!float 2.5e-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_kld: !!float 1.
+  lambda_feat: !!float 0.5
+  ## logging
+  log_steps_to_screen: !!bool False
+  resuming: !!bool True
+
+bs64_vae_orog:
+  <<: *base
+  ## train params
+  batch_size: 64
+  niter: 30
+  niter_decay: 10
+  orography: !!bool True
+  add_grid: !!bool True
+  cat_inp: !!bool True
+  pretrained: !!bool True
+  additive_noise: !!bool True
+  use_l1_loss: !!bool False
+  no_ganFeat_loss: !!bool False
+  train_on_afno_wind: !!bool True
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind_orog/checkpoints/ckpt_best.tar'
+  ## arch params
+  pretrained_same_arch: !!bool False
+  vae_full_res_start: !!bool True
+  use_periodic_padding: !!bool False
+  norm_G: 'spectralfadebatch3x3'
+  ngf0: 64
+  num_D: 4
+  n_layers_D: 4
+  num_upsampling_blocks: 8
+  ## hyperparams
+  lr: !!float 2.5e-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_kld: !!float 1.
   lambda_feat: !!float 0.5
   ## logging
   log_steps_to_screen: !!bool False
@@ -296,28 +426,29 @@ debug:
   DEBUG: !!bool True
   ## train params
   train_on_afno_wind: !!bool True
-  batch_size: 64
+  batch_size: 32
   num_data_workers: 16
   add_grid: !!bool True
-  orography: !!bool False
-  pretrained: !!bool False
+  orography: !!bool True
+  pretrained: !!bool True
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind_orog/checkpoints/ckpt_best.tar'
   pretrained_same_arch: !!bool False
   ## arch params
   use_vae: !!bool True
-  vae_full_res_start: !!bool False
+  vae_full_res_start: !!bool True
   num_D: 4
   n_layers_D: 4
   nef: 8
   z_dim: 256
   ngf0: 64
   # num_upsampling_blocks: 8
-  cat_inp: !!bool False
-  use_l1_loss: !!bool True
+  cat_inp: !!bool True
+  use_l1_loss: !!bool False
   use_ff_loss: !!bool False
   freq_weighting_ffl: !!bool True
   lat_weighting_ffl: !!bool True
   no_gan_loss: !!bool False
-  no_ganFeat_loss: !!bool True
+  no_ganFeat_loss: !!bool False
   use_periodic_padding: !!bool False
   norm_G: 'spectralfadebatch3x3'
   # norm_G: 'fadebatch3x3'
@@ -326,13 +457,14 @@ debug:
   beta1: !!float 0.85
   beta2: !!float 0.95
   lambda_l1: !!float 0.5
-  lambda_ffl: !!float 1.0
+  lambda_feat: !!float 0.5
+  lambda_ffl: !!float 1.
   # lambda_feat: 0.7
-  lambda_kld: !!float 1.2
+  lambda_kld: !!float 1.
   # lambda_ffl: 1.
   ## logging
-  log_to_wandb: !!bool False
+  log_to_wandb: !!bool True
   log_steps_to_screen: !!bool True
   log_every_n_steps: 50
-  save_checkpoint: !!bool False
-  resuming: !!bool False
+  save_checkpoint: !!bool True
+  resuming: !!bool True
