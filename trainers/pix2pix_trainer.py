@@ -402,7 +402,7 @@ class Pix2PixTrainer():
         n_batches_ens = self.params.n_valid_batches_ensemble
         ensemble_metrics = {}
         ensemble_fields = None
-        ens_hists = {}
+        ens_binned_err = {}
         amps = {}
         spec_metrics = {}
         precip_hists = {}
@@ -486,7 +486,7 @@ class Pix2PixTrainer():
                     acc_ens = ensemble_metrics.setdefault('acc_ens', [])
                     binned_log_l1_ens = ensemble_metrics.setdefault('binned_log_l1_ens', [])
                     gen_ens = torch.empty(n_ens, *gen.shape, device=gen.device)
-                    ens_memb_hists = torch.empty(n_ens, *tar_hists_.shape, device=gen.device)
+                    ens_memb_err = torch.empty(n_ens, *tar_hists_.shape, device=gen.device)
                     for i in range(n_ens):
                         # gen_ens_ = gen if i == 0 else self.generate_validation(data)
                         ens_memb = self.generate_validation(data)
@@ -501,7 +501,7 @@ class Pix2PixTrainer():
                                                                  ens_memb_hist, tar_hists_), dim=0)
                         )
                         gen_ens[i] = ens_memb
-                        ens_memb_hists[i] = ens_memb_hist
+                        ens_memb_err[i] = (ens_memb_hist - tar_hists_).abs().log1p()
 
                     acc_[-1] = torch.cat(acc_[-1]).mean(dim=0)
                     binned_log_l1_[-1] = torch.cat(binned_log_l1_[-1]).mean(dim=0)
@@ -510,11 +510,11 @@ class Pix2PixTrainer():
                     ens_unlog = unlog_tp_torch(ens_mean, self.params.precip_eps)
                     acc_ens.append(weighted_acc_torch_channels(ens_unlog - self.tp_tm,
                                                                tar_unlog - self.tp_tm))
-                    ens_hists.setdefault('ens', []).append(precip_histc(ens_mean))
-                    ens_hists.setdefault('ens_memb', []).append(ens_memb_hists.mean(dim=0))
-                    ens_hists.setdefault('target', []).append(tar_hists_)
+                    ens_mean_hist = precip_histc(ens_mean)
+                    ens_binned_err.setdefault('ens', []).append((ens_mean_hist - tar_hists_).abs().log1p())
+                    ens_binned_err.setdefault('ens_memb', []).append(ens_memb_err.mean(dim=0))
                     binned_log_l1_ens.append(binned_precip_log_l1(ens_mean, data[1],
-                                                                  ens_hists['ens'][-1], tar_hists_))
+                                                                  ens_mean_hist, tar_hists_))
                     assert acc_[-1].shape[0] == acc_ens[-1].shape[0], \
                         f'acc_[-1].shape: {acc_[-1].shape} | acc_ens[-1].shape: {acc_ens[-1].shape}'
 
@@ -565,11 +565,11 @@ class Pix2PixTrainer():
         for key, hists in precip_hists.items():
             precip_hists[key] = torch.cat(hists).detach().cpu().numpy()
 
-        for key, hists in ens_hists.items():
-            ens_hists[key] = torch.cat(hists).detach().cpu().numpy()
+        for key, err in ens_binned_err.items():
+            ens_binned_err[key] = torch.cat(err).detach().cpu().numpy()
 
         if ensemble_fields is not None:
-            ensemble_fields.append(ens_hists)
+            ensemble_fields.append(ens_binned_err)
 
         if self.params.afno_validate:
             afno_preds = torch.cat(afno_preds)

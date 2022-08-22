@@ -59,12 +59,13 @@ def viz_fields(flist):
             plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
             plt.title(f'AFNO error (max absolute err={np.abs(afno_err).max():.4f})')
 
-            abs_err_diff = np.abs(err) - np.abs(afno_err)
-            if abs_err_diff.min() < 0. and abs_err_diff.max() > 0.:
+            abs_err_diff = np.log1p(np.abs(err)) - np.log1p(np.abs(afno_err))
+            sc = np.abs(abs_err_diff).max()
+            if sc > 0.:
                 plt.subplot(rows,1,6)
-                plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., abs_err_diff.min(), abs_err_diff.max()), cmap='bwr')
+                plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., -sc, sc), cmap='bwr')
                 plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
-                plt.title(f'Difference in absolute error (blue = TSIT better): min={abs_err_diff.min():.4f}, max={abs_err_diff.max():.4f})')
+                plt.title(f'Difference in log1p absolute error (blue = TSIT better): min={abs_err_diff.min():.4f}, max={abs_err_diff.max():.4f})')
 
     plt.tight_layout()
     return f
@@ -105,53 +106,32 @@ def viz_ens(fields):
 
     ens = hists['ens']
     ens_mean = ens.mean(axis=0)
-    ens_std = ens.std(axis=0) # / np.sqrt(ens.shape[0])
+    ens_stderr = ens.std(axis=0) / np.sqrt(ens.shape[0])
     ens_memb = hists['ens_memb']
     ens_memb_mean = ens_memb.mean(axis=0)
-    ens_memb_std = ens_memb.std(axis=0) # / np.sqrt(ens.shape[0])
-    tar = hists['target']
-    tar_mean = tar.mean(axis=0)
-    tar_std = tar.std(axis=0) # / np.sqrt(ens.shape[0])
+    ens_memb_stderr = ens_memb.std(axis=0) / np.sqrt(ens.shape[0])
 
     bins = 300
     max = 11.
     bin_edges = np.linspace(0., max, bins + 1)
 
     # xlim, ylim = (0., 11.), (0.0000001, 0.5)
-    xlim, ylim = (8., 11.1), (0.0000001, 0.01)
+    xlim, ylim = (6., 11.1), (0., 6.)
 
-    plt.subplot(2,2,4, adjustable='box', aspect=0.3)
+    plt.subplot(2,2,4, adjustable='box', aspect=0.42)
 
-    # era5
-    plt.hist(bin_edges[:-1], bin_edges, weights=tar_mean, density=True, histtype='step', log=True,
-             color='k', linestyle='--', label='era5')
-    plt.hist(bin_edges[:-1], bin_edges, weights=tar_mean - tar_std, density=True, histtype='step', log=True,
-             color='k', linestyle='--', alpha=0.3)
-    plt.hist(bin_edges[:-1], bin_edges, weights=tar_mean + tar_std, density=True, histtype='step', log=True,
-             color='k', linestyle='--', alpha=0.3)
+    plt.plot(bin_edges[:-1], ens_mean, color='g', label='mean field')
+    plt.fill_between(bin_edges[:-1], ens_mean - ens_stderr, ens_mean + ens_stderr, color='g', alpha=0.2)
 
-    # ens mean
-    plt.hist(bin_edges[:-1], bin_edges, weights=ens_mean, density=True, histtype='step', log=True,
-             color='g', linestyle='-', label='ens mean')
-    plt.hist(bin_edges[:-1], bin_edges, weights=ens_mean - ens_std, density=True, histtype='step', log=True,
-             color='g', linestyle='-', alpha=0.3)
-    plt.hist(bin_edges[:-1], bin_edges, weights=ens_mean + ens_std, density=True, histtype='step', log=True,
-             color='g', linestyle='-', alpha=0.3)
-
-    # ens member
-    plt.hist(bin_edges[:-1], bin_edges, weights=ens_memb_mean, density=True, histtype='step', log=True,
-             color='darkorange', linestyle='--', label='mean of ens. membs.')
-    plt.hist(bin_edges[:-1], bin_edges, weights=ens_memb_mean - ens_memb_std, density=True, histtype='step', log=True,
-             color='darkorange', linestyle='--', alpha=0.3)
-    plt.hist(bin_edges[:-1], bin_edges, weights=ens_mean + ens_memb_std, density=True, histtype='step', log=True,
-             color='darkorange', linestyle='--', alpha=0.3)
+    plt.plot(bin_edges[:-1], ens_memb_mean, color='darkorange', label='ens. memb.')
+    plt.fill_between(bin_edges[:-1], ens_memb_mean - ens_memb_stderr, ens_memb_mean + ens_memb_stderr, color='darkorange', alpha=0.2)
 
     plt.legend()
     plt.xlim(xlim)
     plt.ylim(ylim)
     plt.xlabel('log(1 + TP / 1e-5)')
-    plt.ylabel('log density')
-    plt.title(f'mean (+/- std) of per-image TP distribution from {unlog_tp(xlim[0]):.4f} to {unlog_tp(xlim[1]):.4f} m (n={tar.shape[0]})')
+    plt.ylabel('log L1 error')
+    plt.title(f'mean (+/- stderr) of per-image TP distribution absolute error from {unlog_tp(xlim[0]):.4f} to {unlog_tp(xlim[1]):.4f} m (n={tar.shape[0]})')
 
     plt.suptitle('Ensemble')
     plt.tight_layout()
@@ -243,20 +223,20 @@ def viz_spectra(spectra):
     plt.xlabel('wave number')
     plt.ylabel('amplitude')
     plt.legend()
-    plt.title(f'Power spectra +/- STD (n = {n})')
+    plt.title(f'Power spectra +/- std (n = {n})')
 
     plt.subplot(2, 1, 2)
     for key in spec_mean.keys():
         mean = spec_mean[key][600:]
-        stderr = spec_std[key][600:] / np.sqrt(n)
+        std = spec_std[key][600:] # / np.sqrt(n)
         wavenum = np.arange(start=600, stop=spec_mean[key].shape[-1])
         plt.semilogy(wavenum, mean, plt_fmt[key], label=key)
-        plt.fill_between(wavenum, mean - stderr, mean + stderr,
+        plt.fill_between(wavenum, mean - std, mean + std,
                          color=plt_fmt[key][0], alpha=0.2)
 
     plt.xlabel('wave number')
     plt.ylabel('amplitude')
     plt.legend()
-    plt.title(f'Power spectra +/- std. err. (n = {n})')
+    plt.title(f'Power spectra +/- std (n = {n})')
 
     return f
