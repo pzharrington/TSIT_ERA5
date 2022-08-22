@@ -1,5 +1,7 @@
 import os
+import re
 import sys
+import pickle
 import numpy as np
 import pandas as pd
 import torch.nn.functional as F
@@ -11,7 +13,7 @@ from utils.YParams import *
 from utils.spectra_metrics import *
 from utils.weighted_acc_rmse import weighted_acc_torch_channels, weighted_rmse_torch_channels, \
     unlog_tp_torch, lat, latitude_weighting_factor_torch
-from utils.precip_hists import precip_histc, precip_histc_afno, binned_precip_log_l1
+from utils.precip_hists import precip_histc, precip_histc2, precip_histc3, binned_precip_log_l1
 from utils.data_loader_multifiles import GetDataset
 
 from torch.utils.data import DataLoader, Dataset
@@ -26,9 +28,9 @@ def setup_run_path(run, root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_
     """
     run: one of
         - str: absolute path to a run dir w/ "checkpoints" subdir and hyperparams.yaml file
-        - str: path to a run dir w/ "checkpoints" subdir and hyperparams.yaml file
-        - dict: run specification dictionary with "config_name" entry (optionally, "use_best")
-        - dict: sweep specification dictionary with "sweep_id", "config_name", and "run_id" entries (optionally, "use_best")
+        - str: path relative to root_path to a run dir w/ "checkpoints" subdir and hyperparams.yaml file
+        - dict: run specification dictionary with "config_name" entry
+        - dict: sweep specification dictionary with "sweep_id", "config_name", and "run_id" entries
     """
     if isinstance(run, dict):
         if 'run_path' in run.keys():
@@ -36,10 +38,14 @@ def setup_run_path(run, root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_
         if 'root_path' in run.keys():
             root_path = run['root_path']
         if 'sweep_id' in run.keys():
-            if 'sweeps' in root_path:
-                return os.path.join(root_path, f'{run["sweep_id"]}/{run["config_name"]}/{run["run_id"]}')
+            # old way of saving sweep runs used SLURM job id instead of run_id
+            run_id = run['job_id'] if 'job_id' in run.keys() else run['run_id']
+            if '/sweeps/' in root_path:
+                # e.g., root_path '/pscratch/sd/j/jpduncan/tsitprecip/experiments/sweeps/weatherbenching/ERA5_generative'
+                return os.path.join(root_path, f'{run["sweep_id"]}/{run["config_name"]}/{run_id}')
             else:
-                return os.path.join(root_path, 'sweeps', f'{run["sweep_id"]}/{run["config_name"]}/{run["run_id"]}')
+                return os.path.join(root_path, 'sweeps', f'{run["sweep_id"]}/{run["config_name"]}/{run_id}')
+
         else:
             return os.path.join(root_path, f'expts/{run["config_name"]}')
     elif os.path.isdir(run):
@@ -53,6 +59,58 @@ def setup_run_path(run, root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_
         run_path = os.path.join(root_path, f'expts/{run}')
 
     return run_path
+
+
+def setup_save_dir(run,
+                   run_name: str = None,
+                   use_best=True,
+                   overwrite=False,
+                   root_path='/global/cfs/cdirs/dasrepo/jpduncan/weatherbenching/ERA5_generative'):
+
+    if isinstance(run, dict):
+        if 'use_best' in run.keys():
+            use_best = run['use_best']
+
+        if 'sweep_id' in run.keys():
+            assert run_name is not None or 'run_name' in run.keys(), \
+                'please provide run_name with sweep'
+
+        if 'run_name' in run.keys():
+            save_subdir = run['run_name']
+        elif 'config_name' in run.keys():
+            save_subdir = run['config_name']
+        elif 'run_id' in run.keys():
+            save_subdir = run['run_id']
+        else:
+            assert run_name is not None
+            save_subdir = run_name
+
+        if 'overwrite' in run.keys():
+            overwrite = run['overwrite']
+
+    else:
+        assert isinstance(run, str), 'run should be dict or str'
+        if run_name is not None:
+            save_subdir = run_name
+        else:
+            assert 'sweeps' not in run, \
+                'please provide run_name with sweep'
+            if 'expts' in run:
+                save_subdir = re.search(r'(?<=expts/).*')[0]
+            else:
+                # run is a config name
+                save_subdir = run
+
+    if use_best:
+        save_dir = os.path.join(root_path, save_subdir, 'ckpt_best')
+    else:
+        save_dir = os.path.join(root_path, save_subdir, 'ckpt')
+
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
+        overwrite = True
+
+    return save_dir, overwrite
 
 
 def setup_params(run, train=False,
@@ -207,12 +265,12 @@ def calc_inference_summaries(outputs: dict, tp_tm,
         gen_unlog = unlog_tp_torch(gen_afno, precip_eps)
         out['afno_spec'] = torch.fft.rfft(gen_afno.float(), dim=-1, norm='ortho')[:, 0].abs().mean(dim=-2)
         out['afno_acc'] = weighted_acc_torch_channels(gen_unlog - tp_tm, tar_unlog - tp_tm)
-        pred_hists, tar_hists, afno_hists = precip_histc_afno(gen, tar, gen_afno, bins=bins, max=bins_max)
+        pred_hists, tar_hists, afno_hists = precip_histc3(gen, tar, gen_afno, bins=bins, max=bins_max)
         out['afno_hists'] = afno_hists
         out['afno_binned_log_l1'] = binned_precip_log_l1(gen_afno, tar, afno_hists, tar_hists,
                                                          bins=bins, max=bins_max)
     else:
-        pred_hists, tar_hists = precip_histc(gen, tar, bins=bins, max=bins_max)
+        pred_hists, tar_hists = precip_histc2(gen, tar, bins=bins, max=bins_max)
 
     out['pred_hists'] = pred_hists
     out['pred_binned_log_l1'] = binned_precip_log_l1(gen, tar, pred_hists, tar_hists,
@@ -329,68 +387,115 @@ def get_precip_stream(run,
 
 
 def validation(runs,
-               gen_afno_precip=True,
-               summarize_era5=True,
                bins=300, bins_max=11.,
                global_batch_size=32,
                num_workers=16,
                n_gpu=4,
-               total_batches=None):
+               total_batches=None,
+               save=True,
+               overwrite=False,
+               save_root='/global/cfs/cdirs/dasrepo/jpduncan/weatherbenching/ERA5_generative'):
 
-    summaries = {
-        'era5': {} if summarize_era5 else None,
-        'afno': {} if gen_afno_precip else None,
-    }
+    summaries = {}
+
+    gen_afno_precip = True
+    summarize_era5 = True
+
+    afno_fpath = os.path.join(save_root, 'afno', 'validation.pkl')
+    era5_fpath = os.path.join(save_root, 'era5', 'validation.pkl')
+
+    # load afno summary
+    if os.path.isfile(afno_fpath) and not overwrite:
+        with open(afno_fpath, 'rb') as f:
+            summaries['afno'] = pickle.load(f)
+        gen_afno_precip = False
+    elif save and not os.path.isdir(os.path.join(save_root, 'afno')):
+        os.makedirs(os.path.join(save_root, 'afno'))
+
+    # load era5 summary
+    if os.path.isfile(era5_fpath) and not overwrite:
+        with open(era5_fpath, 'rb') as f:
+            summaries['era5'] = pickle.load(f)
+        summarize_era5 = False
+    elif save and not os.path.isdir(os.path.join(save_root, 'era5')):
+        os.makedirs(os.path.join(save_root, 'era5'))
+
     bin_edges = np.linspace(0., bins_max, bins + 1)
 
     for name, run in runs.items():
 
-        stream = get_precip_stream(run,
-                                   gen_afno_precip=gen_afno_precip,
-                                   summarize_era5=summarize_era5,
-                                   bins=bins, bins_max=bins_max,
-                                   global_batch_size=global_batch_size,
-                                   num_workers=num_workers,
-                                   n_gpu=n_gpu,
-                                   total_batches=total_batches)
+        save_dir, overwrite_ = setup_save_dir(run,
+                                              overwrite=overwrite,
+                                              root_path=save_root)
 
-        new_summary_keys = [name]
-        if gen_afno_precip:
-            new_summary_keys.append('afno')
-        if summarize_era5:
-            new_summary_keys.append('era5')
+        save_fpath = os.path.join(save_dir, 'validation.pkl')
 
-        # drops[i] is an output from gen_precip()
-        for drops in stream:
+        if overwrite_ or not os.path.isfile(save_fpath):
+            print(f'validating "{name}" run')
+            stream = get_precip_stream(run,
+                                       gen_afno_precip=gen_afno_precip,
+                                       summarize_era5=summarize_era5,
+                                       bins=bins, bins_max=bins_max,
+                                       global_batch_size=global_batch_size,
+                                       num_workers=num_workers,
+                                       n_gpu=n_gpu,
+                                       total_batches=total_batches)
 
-            for i in range(n_gpu):
+            new_summary_keys = [name]
+            if gen_afno_precip:
+                new_summary_keys.append('afno')
+            if summarize_era5:
+                new_summary_keys.append('era5')
 
-                for key, output in drops[i].items():
+            # drops[i] is an output from gen_precip()
+            for drops in stream:
 
-                    if 'era5' in key:
-                        inner_dict = summaries['era5']
-                    elif 'afno' in key:
-                        inner_dict = summaries['afno']
-                    else:
-                        inner_dict = summaries.setdefault(name, {})
+                for i in range(n_gpu):
 
-                    if key in ['pred', 'era5', 'afno']:
-                        new_key = 'fields'
-                    else:
-                        new_key = key[5:]
+                    for key, output in drops[i].items():
 
-                    output_list = inner_dict.setdefault(new_key, [])
-                    if not new_key == 'fields' or len(output_list) < n_gpu:
-                        output_list.append(output)
+                        if 'era5' in key:
+                            inner_dict = summaries.setdefault('era5', {})
+                        elif 'afno' in key:
+                            inner_dict = summaries.setdefault('afno', {})
+                        else:
+                            inner_dict = summaries.setdefault(name, {})
 
-        # move summaries to CPU and cat
-        for key in new_summary_keys:
-            new_summaries = summaries[key]
-            for summary_name, summary in new_summaries.items():
-                new_summaries[summary_name] = torch.cat([x.to('cpu') for x in summary], dim=0).numpy()
+                        if key in ['pred', 'era5', 'afno']:
+                            new_key = 'fields'
+                        else:
+                            new_key = key[5:]
+
+                        output_list = inner_dict.setdefault(new_key, [])
+                        if not new_key == 'fields' or len(output_list) < n_gpu:
+                            output_list.append(output)
+
+            # move summaries to CPU and cat
+            for key in new_summary_keys:
+                new_summaries = summaries[key]
+                for summary_name, summary in new_summaries.items():
+                    new_summaries[summary_name] = torch.cat([x.to('cpu') for x in summary], dim=0).numpy()
+
+            if save:
+                with open(save_fpath, 'wb') as f:
+                    pickle.dump(summaries[name], f)
+
+                if 'afno' in new_summary_keys:
+                    with open(os.path.join(afno_fpath), 'wb') as f:
+                        pickle.dump(summaries['afno'], f)
+
+                if 'era5' in new_summary_keys:
+                    with open(os.path.join(era5_fpath), 'wb') as f:
+                        pickle.dump(summaries['era5'], f)
+
+        else:
+            print(f'loading previously saved summary for "{name}" run')
+            # load previously saved summary
+            with open(save_fpath, 'rb') as f:
+                summaries[name] = pickle.load(f)
 
         # only need to do these once
-        summarize_era5 = False
-        gen_afno_precip = False
+        summarize_era5 = not 'era5' in summaries.keys()
+        gen_afno_precip = not 'afno' in summaries.keys()
 
     return summaries, bin_edges
