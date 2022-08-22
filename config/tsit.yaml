@@ -400,6 +400,7 @@ bs64_vae_orog:
   pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind_orog/checkpoints/ckpt_best.tar'
   ## arch params
   pretrained_same_arch: !!bool False
+  use_vae: !!bool True
   vae_full_res_start: !!bool True
   use_periodic_padding: !!bool False
   norm_G: 'spectralfadebatch3x3'
@@ -413,6 +414,41 @@ bs64_vae_orog:
   beta2: !!float 0.95
   lambda_kld: !!float 0.75
   lambda_feat: !!float 0.5
+  ## logging
+  log_steps_to_screen: !!bool False
+  resuming: !!bool True
+
+bs64_vae_l1:
+  <<: *base
+  ## train params
+  batch_size: 64
+  niter: 30
+  niter_decay: 10
+  cat_inp: !!bool False
+  add_grid: !!bool True
+  pretrained: !!bool False
+  additive_noise: !!bool True
+  use_l1_loss: !!bool True
+  no_ganFeat_loss: !!bool False
+  train_on_afno_wind: !!bool True
+  ## arch params
+  use_vae: !!bool True
+  vae_full_res_start: !!bool True
+  use_periodic_padding: !!bool False
+  norm_G: 'spectralfadebatch3x3'
+  z_dim: 128
+  nef: 8
+  ngf0: 64
+  num_D: 4
+  n_layers_D: 4
+  num_upsampling_blocks: 8
+  ## hyperparams
+  lr: !!float 2.5e-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_l1: !!float 0.5
+  lambda_kld: !!float 0.6
+  lambda_feat: !!float 0.7
   ## logging
   log_steps_to_screen: !!bool False
   resuming: !!bool True
