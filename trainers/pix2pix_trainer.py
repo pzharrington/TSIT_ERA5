@@ -343,7 +343,7 @@ class Pix2PixTrainer():
             if self.params.train_on_afno_wind:
                 with torch.no_grad():
                     afno_pred = self.afno_wind(data[0][:, :n_wind])
-                    if self.params.add_grid:
+                    if self.params.add_grid or self.params.orography:
                         afno_pred = torch.cat([afno_pred, data[0][:, n_wind:]], dim=1)
                     data = (afno_pred, data[1])
             afno_time += time.time() - timer

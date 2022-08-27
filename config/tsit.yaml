@@ -7,6 +7,7 @@ base: &base
   out_channels: [0] # tp
   train_data_path: '/pscratch/sd/s/shas1693/data/era5/train'
   valid_data_path: '/pscratch/sd/s/shas1693/data/era5/test'
+  inf_data_path: '/pscratch/sd/s/shas1693/data/era5/out_of_sample' # test set path for inference
   min_path: '/pscratch/sd/s/shas1693/data/era5/mins.npy'
   max_path: '/pscratch/sd/s/shas1693/data/era5/maxs.npy'
   time_means_path:   '/pscratch/sd/s/shas1693/data/era5/time_means.npy'
@@ -312,6 +313,40 @@ bs64_gan:
   log_steps_to_screen: !!bool False
   resuming: !!bool True
 
+bs64_gan_decay:
+  <<: *base
+  ## train params
+  batch_size: 64
+  niter: 1 # there were 15 iterations to best binned_log_l1 checkpoint
+  niter_decay: 14
+  cat_inp: !!bool True
+  add_grid: !!bool True
+  additive_noise: !!bool True
+  use_l1_loss: !!bool False
+  no_ganFeat_loss: !!bool False
+  train_on_afno_wind: !!bool True
+  pretrained: !!bool True
+  pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_gan/checkpoints/ckpt_best.tar'
+  ## arch params
+  use_vae: !!bool False
+  pretrained_same_arch: !!bool False
+  use_periodic_padding: !!bool False
+  norm_G: 'spectralfadebatch3x3'
+  z_dim: 256
+  nef: 16
+  ngf0: 64
+  num_D: 4
+  n_layers_D: 4
+  num_upsampling_blocks: 8
+  ## hyperparams
+  lr: !!float 2.5e-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  lambda_feat: !!float 0.5
+  ## logging
+  log_steps_to_screen: !!bool False
+  resuming: !!bool True
+
 bs64_gan_orog:
   <<: *base
   ## train params
@@ -504,3 +539,31 @@ debug:
   log_every_n_steps: 50
   save_checkpoint: !!bool True
   resuming: !!bool True
+
+###########
+# inference
+###########
+
+inf: &inf
+  <<: *base
+  prediction_length: 41
+
+inf_l1_only_afno_wind: &inf_l1_only_afno_wind
+  <<: *inf
+  run:
+    config_name: 'bs64_l1_only_afno_wind'
+
+inf_gan: &inf_gan
+  <<: *inf
+  run:
+    config_name: 'bs64_gan'
+
+inf_gan_decay: &inf_gan_decay
+  <<: *inf
+  run:
+    config_name: 'bs64_gan_decay'
+
+inf_hopeful_sweep_3: &inf_hopeful_sweep_3
+  <<: *inf
+  run:
+    run_path: '/pscratch/sd/j/jpduncan/tsitprecip/experiments/sweeps/weatherbenching/ERA5_generative/y1z23w1f/bs64_ganFeat_vae_sweep/63ln59oa'

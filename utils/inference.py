@@ -1,6 +1,8 @@
 import os
 import re
 import sys
+import glob
+import h5py
 import pickle
 import numpy as np
 import pandas as pd
@@ -115,6 +117,7 @@ def setup_save_dir(run,
 
 def setup_params(run, train=False,
                  root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative',
+                 base_params=None,
                  base_config_path='/global/homes/j/jpduncan/intern/TSIT_ERA5/config/tsit.yaml'):
     """
     run: see setup_run_path
@@ -123,7 +126,10 @@ def setup_params(run, train=False,
 
     # load params
     config_path = f'{run_path}/hyperparams.yaml'
-    params = YParams(base_config_path, 'base')
+    if base_params is None:
+        params = YParams(base_config_path, 'base')
+    else:
+        params = base_params
 
     # convert hyperparams.yaml entries to correct types
     with open(config_path) as _file:
@@ -139,25 +145,41 @@ def setup_params(run, train=False,
     return params
 
 
-def setup_replicas(run, train=False, devs=[0], use_best=True,
+def setup_replicas(run, train=False, devs=[0],
+                   use_best_acc=True,
+                   use_best_binned_log_l1=False,
                    root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative',
+                   base_params=None,
                    base_config_path='/global/homes/j/jpduncan/intern/TSIT_ERA5/config/tsit.yaml'):
     """
     run: see setup_run_path
     """
+
+    if isinstance(run, dict):
+
+        if 'use_best_acc' in run.keys():
+            use_best_acc = run['use_best_acc']
+            use_best_binned_log_l1 = False
+
+        if 'use_best_binned_log_l1' in run.keys():
+            use_best_binned_log_l1 = run['use_best_binned_log_l1']
+            use_best_acc = False
+
+    assert not (use_best_acc and use_best_binned_log_l1), \
+        'use_best or use_best_binned_log_l1, or neither, but not both'
+
+    params = setup_params(run, train, root_path, base_params, base_config_path)
+
+    if use_best_acc:
+        ckpt_path = 'ckpt_best.tar'
+    elif use_best_binned_log_l1:
+        ckpt_path = 'ckpt_best_binned_log_l1.tar'
+    else:
+        ckpt_path = 'ckpt.tar'
+
     run_path = setup_run_path(run, root_path)
 
-    if isinstance(run, dict) and 'use_best' in run.keys():
-        use_best = run['use_best']
-
-    if use_best:
-        ckpt_file = 'ckpt_best.tar'
-    else:
-        ckpt_file = 'ckpt.tar'
-
-    ckpt_path = f'{run_path}/checkpoints/{ckpt_file}'
-
-    params = setup_params(run, train, root_path, base_config_path)
+    ckpt_path = f'{run_path}/checkpoints/{ckpt_path}'
 
     pix2pix_models = [None for dev in range(max(devs) + 1)]
     for dev in devs:
@@ -171,6 +193,7 @@ def setup_replicas(run, train=False, devs=[0], use_best=True,
 
         pix2pix_model.load_state(checkpoint)
         pix2pix_model.set_eval()
+        pix2pix_model.params.checkpoint_path = ckpt_path
         pix2pix_models[dev] = pix2pix_model
 
     return pix2pix_models
@@ -499,3 +522,36 @@ def validation(runs,
         gen_afno_precip = not 'afno' in summaries.keys()
 
     return summaries, bin_edges
+
+
+def load_inference_results(*config_names: str,
+                           root_dir: str = '/global/cfs/cdirs/dasrepo/jpduncan/weatherbenching/ERA5_generative',
+                           config_yaml_file: str = '../config/tsit.yaml'):
+    """
+    config_name: a inf_* config name
+    root_dir: path to directory where inference_ensemble.py outputs are saved
+    """
+    # params = YParams(os.path.abspath(config_yaml_file), config_name)
+
+    results = {}
+
+    for config_name in config_names:
+
+        inner_dict = results.setdefault(config_name, {})
+
+        inf_dir = os.path.join(root_dir, config_name, 'inference_ensemble')
+
+        assert os.path.isdir(inf_dir), f'{inf_dir} doesn\'t exist'
+
+        subdirs = next(os.walk(inf_dir))[1]
+
+        results_files = []
+
+        for subdir in subdirs:
+            inner = inner_dict.setdefault(subdir, [])
+            h5_glob = str(os.path.join(inf_dir, subdir, '*.h5'))
+            fnames = glob.glob(h5_glob)
+            for fname in fnames:
+                inner.append(h5py.File(fname, 'r'))
+
+    return results

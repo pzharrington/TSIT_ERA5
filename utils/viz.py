@@ -181,7 +181,7 @@ def viz_density(precip_hists: dict):
 
         if afno is not None:
             plt.hist(bin_edges[:-1], bin_edges, weights=afno_mean, density=True, histtype='step', log=True,
-                     color='r', linestyle='-', label='era5')
+                     color='r', linestyle='-', label='afno')
             plt.hist(bin_edges[:-1], bin_edges, weights=afno_mean - afno_stderr, density=True, histtype='step', log=True,
                      color='r', linestyle='-', alpha=0.3)
             plt.hist(bin_edges[:-1], bin_edges, weights=afno_mean + afno_stderr, density=True, histtype='step', log=True,
@@ -238,5 +238,46 @@ def viz_spectra(spectra):
     plt.ylabel('amplitude')
     plt.legend()
     plt.title(f'Power spectra +/- std (n = {n})')
+
+    return f
+
+
+def viz_inference(inference_results: dict,
+                  inf_name='control',
+                  metric_name='acc',
+                  t_range=(1, 16),
+                  dt=6):
+
+    colors = ['g', 'c', 'm', 'darkorange', 'lime', 'cornflowerblue']
+
+    f = plt.figure(figsize=(15,8))
+
+    t0 = t_range[0]
+    tf = t_range[1]
+
+    subtr = 0
+    for i, (key, val) in enumerate(inference_results.items()):
+
+        if key == 'afno':
+            color = 'r'
+            subtr = 1
+        else:
+            color = colors[i-subtr]
+
+        if metric_name in val[inf_name][0].keys():
+
+            metric = val[inf_name][0][metric_name][:, t0:tf]
+            mean = metric.mean(axis=0).ravel()
+            first_qrt = np.quantile(metric, 0.25, axis=0).ravel()
+            third_qrt = np.quantile(metric, 0.75, axis=0).ravel()
+
+            t = np.arange(t0 * dt, tf * dt, dt)
+            plt.plot(t, mean, marker='.', label=key, color=color)
+            plt.fill_between(t, first_qrt, third_qrt, color=color, alpha=0.1)
+
+    plt.title(f'{inf_name} {metric_name}')
+    plt.xlim(0, (tf - 1) * dt)
+    plt.xticks([0, 24, 48, 72])
+    plt.legend()
 
     return f
