@@ -165,6 +165,42 @@ bs64_l1_only_afno_wind:
   ## logging
   resuming: !!bool True
 
+bs64_l1_only_afno_wind_ppad:
+  <<: *base
+  ## train params
+  batch_size: 64
+  add_grid: !!bool True
+  train_on_afno_wind: !!bool True
+  niter: 15
+  niter_decay: 10
+  ## arch params
+  use_l1_loss: !!bool True
+  no_gan_loss: !!bool True
+  no_ganFeat_loss: !!bool True
+  norm_G: 'spectralfadebatch3x3'
+  num_upsampling_blocks: 8
+  use_periodic_padding: !!bool True
+  ## hyperparams
+  lr: !!float 6.5E-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  ## logging
+  resuming: !!bool True
+  ## cfs stopgap while pscratch down
+  train_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/train'
+  valid_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/test'
+  inf_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/out_of_sample' # test set path for inference
+  min_path: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation/mins.npy' # unused and not the right file, but avoids error
+  max_path: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation/maxs.npy' # unused and not the right file, but avoids error
+  time_means_path:   '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/time_means.npy'
+  global_means_path: '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/global_means.npy'
+  global_stds_path:  '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/global_stds.npy'
+  precip: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation'
+  precip_time_means: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation/time_means.npy'
+  orography_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/static/orography.h5'
+  afno_model_precip_path: '/global/cfs/cdirs/m4134/gsharing/model_weights/FCN_weights_v0/precip.ckpt'
+  afno_model_wind_path: '/global/cfs/cdirs/m4134/gsharing/model_weights/FCN_weights_v0/backbone.ckpt'
+
 bs64_l1_only_afno_wind_orog:
   <<: *base
   ## train params
@@ -500,31 +536,31 @@ debug:
   batch_size: 32
   num_data_workers: 16
   add_grid: !!bool True
-  orography: !!bool True
-  pretrained: !!bool True
+  orography: !!bool False
+  pretrained: !!bool False
   pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind_orog/checkpoints/ckpt_best.tar'
   pretrained_same_arch: !!bool False
   ## arch params
-  use_vae: !!bool True
-  vae_full_res_start: !!bool True
+  use_vae: !!bool False
+  vae_full_res_start: !!bool False
   num_D: 4
   n_layers_D: 4
   nef: 8
   z_dim: 256
   ngf0: 64
   # num_upsampling_blocks: 8
-  cat_inp: !!bool True
-  use_l1_loss: !!bool False
+  cat_inp: !!bool False
+  use_l1_loss: !!bool True
   use_ff_loss: !!bool False
   freq_weighting_ffl: !!bool True
   lat_weighting_ffl: !!bool True
-  no_gan_loss: !!bool False
-  no_ganFeat_loss: !!bool False
-  use_periodic_padding: !!bool False
+  no_gan_loss: !!bool True
+  no_ganFeat_loss: !!bool True
+  use_periodic_padding: !!bool True
   norm_G: 'spectralfadebatch3x3'
   # norm_G: 'fadebatch3x3'
   ## hyperparams
-  # lr: 1.5E-4
+  lr: 6.5E-4
   beta1: !!float 0.85
   beta2: !!float 0.95
   lambda_l1: !!float 0.5
@@ -537,8 +573,20 @@ debug:
   log_to_wandb: !!bool True
   log_steps_to_screen: !!bool True
   log_every_n_steps: 50
-  save_checkpoint: !!bool True
-  resuming: !!bool True
+  save_checkpoint: !!bool False
+  resuming: !!bool False
+  # cfs stopgap
+  train_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/train'
+  valid_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/test'
+  inf_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/out_of_sample' # test set path for inference
+  time_means_path:   '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/time_means.npy'
+  global_means_path: '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/global_means.npy'
+  global_stds_path:  '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/global_stds.npy'
+  precip: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation'
+  precip_time_means: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation/time_means.npy'
+  orography_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/static/orography.h5'
+  afno_model_precip_path: '/global/cfs/cdirs/m4134/gsharing/model_weights/FCN_weights_v0/precip.ckpt'
+  afno_model_wind_path: '/global/cfs/cdirs/m4134/gsharing/model_weights/FCN_weights_v0/backbone.ckpt'
 
 ###########
 # inference

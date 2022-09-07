@@ -500,16 +500,16 @@ class Pix2PixTrainer():
                             torch.unsqueeze(binned_precip_log_l1(ens_memb, data[1],
                                                                  ens_memb_hist, tar_hists_), dim=0)
                         )
-                        gen_ens[i] = ens_memb
+                        gen_ens[i] = gen_unlog
                         ens_memb_err[i] = (ens_memb_hist - tar_hists_).abs().log1p()
 
                     acc_[-1] = torch.cat(acc_[-1]).mean(dim=0)
                     binned_log_l1_[-1] = torch.cat(binned_log_l1_[-1]).mean(dim=0)
 
-                    ens_mean = gen_ens.mean(dim=0)
-                    ens_unlog = unlog_tp_torch(ens_mean, self.params.precip_eps)
-                    acc_ens.append(weighted_acc_torch_channels(ens_unlog - self.tp_tm,
+                    ens_unlog_mean = gen_ens.mean(dim=0)
+                    acc_ens.append(weighted_acc_torch_channels(ens_unlog_mean - self.tp_tm,
                                                                tar_unlog - self.tp_tm))
+                    ens_mean = torch.log1p(ens_unlog_mean / self.params.precip_eps)
                     ens_mean_hist = precip_histc(ens_mean)
                     ens_binned_err.setdefault('ens', []).append((ens_mean_hist - tar_hists_).abs().log1p())
                     ens_binned_err.setdefault('ens_memb', []).append(ens_memb_err.mean(dim=0))
@@ -517,6 +517,10 @@ class Pix2PixTrainer():
                                                                   ens_mean_hist, tar_hists_))
                     assert acc_[-1].shape[0] == acc_ens[-1].shape[0], \
                         f'acc_[-1].shape: {acc_[-1].shape} | acc_ens[-1].shape: {acc_ens[-1].shape}'
+
+                    # get ensemble std in log space
+                    ens_std = gen_ens[:, 0, 0].std(dim=0)
+                    ens_std = ens_std.sign() * torch.log1p(ens_std.abs() / self.params.precip_eps)
 
                     if idx == 0:
                         ensemble_fields = [data[1][0, 0].cpu().numpy(),
