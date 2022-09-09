@@ -520,13 +520,13 @@ class Pix2PixTrainer():
 
                     # get ensemble std in log space
                     ens_std = gen_ens[:, 0, 0].std(dim=0)
-                    ens_std = ens_std.sign() * torch.log1p(ens_std.abs() / self.params.precip_eps)
+                    ens_std = torch.log1p(ens_std / self.params.precip_eps)
 
                     if idx == 0:
                         ensemble_fields = [data[1][0, 0].cpu().numpy(),
                                            afno_pred[0, 0].cpu().numpy(),
                                            ens_mean[0, 0].cpu().numpy(),
-                                           gen_ens[:, 0, 0].std(dim=0).cpu().numpy()]
+                                           ens_std.cpu().numpy()]
 
                 ens_time += time.time() - timer
 
