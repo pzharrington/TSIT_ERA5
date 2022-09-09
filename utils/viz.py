@@ -32,18 +32,15 @@ def viz_fields(flist):
 
     if afno is not None:
         afno_err = afno - tar
-        err_min = afno_err.min()
-        err_max = afno_err.max()
+        sc_err = np.abs(afno_err).max()
     else:
-        err_min = err.min()
-        err_max = err.max()
+        sc_err = np.abs(err).max()
 
-    if err_min < 0. and err_max > 0.:
-        plt.imshow(err, norm=TwoSlopeNorm(0., err_min, err_max), cmap='bwr')
+        plt.imshow(err, norm=TwoSlopeNorm(0., -sc_err, sc_err), cmap='bwr')
         plt.colorbar(shrink=0.4, location='bottom', pad=0.05, extend='both')
         err_title = f'TSIT error (max absolute err={np.abs(err).max():.4f})'
         if afno is not None:
-             err_title += ', bounded by AFNO error range'
+             err_title += ', bounded by +/- max absolute AFNO error'
         plt.title(err_title)
 
         if afno is not None:
@@ -55,7 +52,7 @@ def viz_fields(flist):
             plt.subplot(rows,1,5)
             afno_err = afno - tar
             plt.imshow(afno_err,
-                       norm=TwoSlopeNorm(0., err_min, err_max), cmap='bwr')
+                       norm=TwoSlopeNorm(0., -sc_err, sc_err), cmap='bwr')
             plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
             plt.title(f'AFNO error (max absolute err={np.abs(afno_err).max():.4f})')
 
@@ -65,7 +62,7 @@ def viz_fields(flist):
                 plt.subplot(rows,1,6)
                 plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., -sc, sc), cmap='bwr')
                 plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
-                plt.title(f'Difference in log1p absolute error (blue = TSIT better): min={abs_err_diff.min():.4f}, max={abs_err_diff.max():.4f})')
+                plt.title(f'Difference in log1p absolute error (blue = TSIT better): min={abs_err_diff.min():.4f}, max={abs_err_diff.max():.4f}, mean={abs_err_diff.mean():.4f}')
 
     plt.tight_layout()
     return f
@@ -77,13 +74,6 @@ def viz_ens(fields):
     f = plt.figure(figsize=(32, 24))
 
     err = mean_field - tar
-    if afno is not None:
-        afno_err = afno - tar
-        err_min = afno_err.min()
-        err_max = afno_err.max()
-    else:
-        err_min = err.min()
-        err_max = err.max()
 
     plt.subplot(2,2,1)
     # sc = np.quantile(std_field, 0.999)
@@ -97,12 +87,18 @@ def viz_ens(fields):
     plt.title('Mean field, bounded by Truth max')
 
     plt.subplot(2,2,3)
-    plt.imshow(err, norm=TwoSlopeNorm(0., err.min(), err.max()), cmap='bwr')
-    plt.colorbar(shrink=0.4, location='bottom', pad=0.05, extend='both')
-    err_title = f'Mean field error (max absolute err={np.abs(err).max():.4f})'
     if afno is not None:
-        err_title += ', bounded by AFNO error range'
-    plt.title(err_title)
+        afno_err = afno - tar
+        abs_err_diff = np.log1p(np.abs(err)) - np.log1p(np.abs(afno_err))
+        sc = np.abs(abs_err_diff).max()
+        plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., -sc, sc), cmap='bwr')
+        plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
+        plt.title(f'Difference in log1p absolute error (blue = TSIT better): min={abs_err_diff.min():.4f}, max={abs_err_diff.max():.4f}, mean={abs_err_diff.mean():.4f}')
+    else:
+        sc = np.abs(err).max()
+        plt.imshow(err, norm=TwoSlopeNorm(0., -sc, sc), cmap='bwr')
+        plt.colorbar(shrink=0.4, location='bottom', pad=0.05, extend='both')
+        plt.title(f'Mean field error (max absolute err={np.abs(err).max():.4f})')
 
     ens = hists['ens']
     ens_mean = ens.mean(axis=0)
@@ -146,9 +142,6 @@ def viz_density(precip_hists: dict):
     tar_mean = tar.mean(axis=0)
     tar_stderr = tar.std(axis=0) # / np.sqrt(tar.shape[0])
     afno = precip_hists.get('afno')
-    if afno is not None:
-        afno_mean = precip_hists['afno'].mean(axis=0)
-        afno_stderr = precip_hists['afno'].std(axis=0) # / np.sqrt(afno.shape[0])
 
     bins = 300
     max = 11.
@@ -180,6 +173,8 @@ def viz_density(precip_hists: dict):
                  color='g', linestyle='-', alpha=0.3)
 
         if afno is not None:
+            afno_mean = precip_hists['afno'].mean(axis=0)
+            afno_stderr = precip_hists['afno'].std(axis=0) # / np.sqrt(afno.shape[0])
             plt.hist(bin_edges[:-1], bin_edges, weights=afno_mean, density=True, histtype='step', log=True,
                      color='r', linestyle='-', label='afno')
             plt.hist(bin_edges[:-1], bin_edges, weights=afno_mean - afno_stderr, density=True, histtype='step', log=True,
