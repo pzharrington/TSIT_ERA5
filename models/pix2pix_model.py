@@ -2,7 +2,6 @@ from collections import OrderedDict
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import models.networks as networks
 from torch.nn.parallel import DistributedDataParallel
 
@@ -23,12 +22,10 @@ class Pix2PixModel():
         self.isTrain = isTrain
         self.epoch = 0
 
-        # get correct input_nc, in case Pix2PixModel is initialized directly
-        input_nc = len(self.params.in_channels) + \
+        # recalculate input_nc, in case Pix2PixModel is initialized directly
+        self.params.input_nc = len(self.params.in_channels) + \
             (self.params.N_grid_channels if self.params.add_grid else 0) + \
-            (1 if self.params.orography else 0)
-        if self.params.input_nc != input_nc:
-            self.params.input_nc = input_nc
+            int(self.params.orography) + int(self.params.prev_precip_input)
 
         self.netG, self.netD, self.netE = self.initialize_networks(self.params)
         if distributed:
@@ -43,16 +40,16 @@ class Pix2PixModel():
         # set loss functions
         if self.isTrain:
             self.criterionGAN = networks.GANLoss(
-                params.gan_mode, tensor=self.FloatTensor, params=self.params)
+                self.params.gan_mode, tensor=self.FloatTensor, params=self.params)
             self.criterionFeat = torch.nn.L1Loss()
-            if params.use_vae:
+            if self.params.use_vae:
                 self.KLDLoss = networks.KLDLoss()
-            if params.use_ff_loss:
-                num_freq = (params.img_size[1] // 2) + 1
-                num_lat = params.img_size[0]
+            if self.params.use_ff_loss:
+                num_freq = (self.params.img_size[1] // 2) + 1
+                num_lat = self.params.img_size[0]
                 self.FFLoss = networks.FFLoss(num_freq, num_lat,
-                                              params.freq_weighting_ffl,
-                                              params.lat_weighting_ffl,
+                                              self.params.freq_weighting_ffl,
+                                              self.params.lat_weighting_ffl,
                                               device=torch.device(self.device))
 
 

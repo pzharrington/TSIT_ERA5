@@ -15,6 +15,7 @@ base: &base
   global_stds_path:  '/pscratch/sd/s/shas1693/data/era5/global_stds.npy'
   precip: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation'
   precip_time_means: '/pscratch/sd/p/pharring/ERA5/precip/total_precipitation/time_means.npy'
+  prev_precip_input: !!bool False
   orography_path: '/pscratch/sd/s/shas1693/data/era5/static/orography.h5'
   orography: !!bool False
   precip_eps: !!float 1e-5 # epsilon for normalizing precip log(1+tp/eps)
@@ -170,6 +171,43 @@ bs64_l1_only_afno_wind_ppad:
   ## train params
   batch_size: 64
   add_grid: !!bool True
+  train_on_afno_wind: !!bool True
+  niter: 15
+  niter_decay: 10
+  ## arch params
+  use_l1_loss: !!bool True
+  no_gan_loss: !!bool True
+  no_ganFeat_loss: !!bool True
+  norm_G: 'spectralfadebatch3x3'
+  num_upsampling_blocks: 8
+  use_periodic_padding: !!bool True
+  ## hyperparams
+  lr: !!float 6.5E-4
+  beta1: !!float 0.85
+  beta2: !!float 0.95
+  ## logging
+  resuming: !!bool True
+  ## cfs stopgap while pscratch down
+  train_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/train'
+  valid_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/test'
+  inf_data_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/out_of_sample' # test set path for inference
+  min_path: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation/mins.npy' # unused and not the right file, but avoids error
+  max_path: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation/maxs.npy' # unused and not the right file, but avoids error
+  time_means_path:   '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/time_means.npy'
+  global_means_path: '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/global_means.npy'
+  global_stds_path:  '/global/cfs/cdirs/m4134/gsharing/additional/stats_v0/global_stds.npy'
+  precip: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation'
+  precip_time_means: '/global/cfs/cdirs/m4134/pscratch/precip/total_precipitation/time_means.npy'
+  orography_path: '/global/cfs/cdirs/m4134/gsharing/data/FCN_ERA5_data_v0/static/orography.h5'
+  afno_model_precip_path: '/global/cfs/cdirs/m4134/gsharing/model_weights/FCN_weights_v0/precip.ckpt'
+  afno_model_wind_path: '/global/cfs/cdirs/m4134/gsharing/model_weights/FCN_weights_v0/backbone.ckpt'
+
+bs64_l1_only_afno_wind_ppad_precip:
+  <<: *base
+  ## train params
+  batch_size: 64
+  add_grid: !!bool True
+  prev_precip_input: !!bool True
   train_on_afno_wind: !!bool True
   niter: 15
   niter_decay: 10
@@ -584,10 +622,11 @@ debug:
   DEBUG: !!bool True
   ## train params
   train_on_afno_wind: !!bool True
-  batch_size: 32
-  num_data_workers: 16
+  batch_size: 2
+  num_data_workers: 2
   add_grid: !!bool True
   orography: !!bool False
+  prev_precip_input: !!bool True
   pretrained: !!bool False
   pretrained_model_path: '/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative/expts/bs64_l1_only_afno_wind_orog/checkpoints/ckpt_best.tar'
   pretrained_same_arch: !!bool False
@@ -621,7 +660,7 @@ debug:
   lambda_kld: !!float 1.
   # lambda_ffl: 1.
   ## logging
-  log_to_wandb: !!bool True
+  log_to_wandb: !!bool False
   log_steps_to_screen: !!bool True
   log_every_n_steps: 50
   save_checkpoint: !!bool False

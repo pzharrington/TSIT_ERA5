@@ -1,19 +1,9 @@
-import logging
-import glob
-from types import new_class
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import random
 import numpy as np
-from torch.utils.data import DataLoader, Dataset
-from torch.utils.data.distributed import DistributedSampler
-from torch import Tensor
-import h5py
-import math
 import torchvision.transforms.functional as TF
-import matplotlib
-import matplotlib.pyplot as plt
+
 
 class PeriodicPad2d(nn.Module):
     """ 
@@ -31,7 +21,8 @@ class PeriodicPad2d(nn.Module):
         out = F.pad(out, (0, 0, self.pad_width, self.pad_width), mode="constant", value=0) 
         return out
 
-def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, params, y_roll, train, normalize=True, orog=None):
+
+def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, params, y_roll, train, normalize=True, orog=None, precip=None):
     #Takes in np array of size (n_history+1, c, h, w) and returns torch tensor of size ((n_channels*(n_history+1), crop_size_x, crop_size_y)
 
     if len(np.shape(img)) ==3:
@@ -63,6 +54,13 @@ def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
         elif params.normalization == 'zscore':
           img -=means
           img /=stds
+
+    if precip is not None:
+        precip = reshape_precip(precip, crop_size_x, crop_size_y, rnd_x, rnd_y, params, y_roll, train, normalize)
+        if len(np.shape(precip)) == 3:
+            precip = np.expand_dims(precip, 0)
+        img = np.concatenate((img, precip), axis=1)
+        n_channels += 1
 
     if params.add_grid and inp_or_tar == 'inp':
         n_grid_channels = params.N_grid_channels
@@ -116,7 +114,8 @@ def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
         img = TF.resize(img, size=(outx,outy))
     return img
 
-def reshape_precip(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, params, y_roll, train, normalize=True):
+
+def reshape_precip(img, crop_size_x, crop_size_y,rnd_x, rnd_y, params, y_roll, train, normalize=True):
 
     if len(np.shape(img)) ==2:
       img = np.expand_dims(img, 0)
@@ -125,7 +124,6 @@ def reshape_precip(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
     img_shape_x = img.shape[-2]
     img_shape_y = img.shape[-1]
     n_channels = 1
-    n_grid_channels = 0 # updated when creating the grid
     if crop_size_x == None:
         crop_size_x = img_shape_x
     if crop_size_y == None:
@@ -135,49 +133,20 @@ def reshape_precip(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
         eps = params.precip_eps
         img = np.log1p(img/eps)
 
-    if params.add_grid and inp_or_tar == 'inp':
-        n_grid_channels = params.N_grid_channels if params.add_grid else 0
-        if params.gridtype == 'linear':
-            x = np.meshgrid(np.linspace(-1, 1, img_shape_x))
-            y = np.meshgrid(np.linspace(-1, 1, img_shape_y))
-            grid_x, grid_y = np.meshgrid(y, x)
-            if params.gridalong == 'x':
-                grid = np.expand_dims(grid_y, axis=[0, 1])
-            elif params.gridalong == 'y':
-                grid = np.expand_dims(grid_x, axis=[0, 1])
-            else:
-                grid = np.expand_dims(np.stack((grid_x, grid_y), axis = 0), axis=0)
-        elif params.gridtype == 'sinusoidal':
-            x1 = np.meshgrid(np.sin(np.linspace(0, 2*np.pi, img_shape_x)))
-            x2 = np.meshgrid(np.cos(np.linspace(0, 2*np.pi, img_shape_x)))
-            y1 = np.meshgrid(np.sin(np.linspace(0, 2*np.pi, img_shape_y)))
-            y2 = np.meshgrid(np.cos(np.linspace(0, 2*np.pi, img_shape_y)))
-            grid_x1, grid_y1 = np.meshgrid(y1, x1)
-            grid_x2, grid_y2 = np.meshgrid(y2, x2)
-            if params.gridalong == 'x':
-                grid = np.expand_dims(np.stack((grid_y1, grid_y2), axis = 0), axis = 0)
-            elif params.gridalong == 'y':
-                grid = np.expand_dims(np.stack((grid_x1, grid_x2), axis = 0), axis = 0)
-            else:
-                grid = np.expand_dims(np.stack((grid_x1, grid_y1, grid_x2, grid_y2), axis = 0), axis = 0)
-        grid = np.resize(grid, (img.shape[0], ) + grid.shape[1:]).astype(np.float32)
-        assert n_grid_channels == grid.shape[1], \
-            f'N_grid_channels must be set to {grid.shape[1]} for {params.gridtype} grid along axes "{params.gridalong}"'
-        img = np.concatenate((img, grid), axis = 1 )
-
     if params.roll:
         img = np.roll(img, y_roll, axis = -1)
 
     if train and (crop_size_x or crop_size_y):
         img = img[:,rnd_x:rnd_x+crop_size_x, rnd_y:rnd_y+crop_size_y]
 
-    img = torch.as_tensor(np.reshape(img, (n_channels + n_grid_channels, crop_size_x, crop_size_y)))
+    img = torch.as_tensor(np.reshape(img, (n_channels, crop_size_x, crop_size_y)))
 
-    if params.img_size != img.shape:
-        outx, outy = params.img_size
+    outx, outy = params.img_size
+    if img.shape[-2] != outx or img.shape[-1] != outy:
         img = TF.resize(img, size=(outx,outy))
 
     return img
+
 
 def compute_latent_vector_size(params):
     num_blocks = params.num_upsampling_blocks

@@ -1,9 +1,8 @@
-import os, sys, time
+import os, time
 import torch
 from models.pix2pix_model import Pix2PixModel
 from models.afnonet import AFNONet, PrecipNet, load_afno
 import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 import torch.optim.lr_scheduler as lr_scheduler
 import torchvision.transforms.functional as TF
@@ -73,12 +72,11 @@ class Pix2PixTrainer():
             if self.log_to_screen:
                 logging.info(f'Resized precip means from {old_shape} to {self.tp_tm.shape}')
 
-        # add grid channels to input_nc
+        # add extra channels to input_nc
         if params.add_grid:
             params.input_nc += params.N_grid_channels
-
-        if params.orography:
-            params.input_nc += 1
+        params.input_nc += int(params.orography)
+        params.input_nc += int(params.prev_precip_input)
 
         self.params = params
 
@@ -90,8 +88,6 @@ class Pix2PixTrainer():
 
 
     def build(self):
-
-        jid = os.environ['SLURM_JOBID']
 
         # init wandb
         if self.log_to_wandb:
@@ -116,7 +112,10 @@ class Pix2PixTrainer():
                 wandb.init(config=self.params.params, name=self.params.name, project=self.params.project,
                            entity=self.params.entity, resume=self.params.resuming, dir=exp_dir)
         elif self.sweep_id:
-            exp_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config, jid])
+            if 'SLURM_JOBID' in os.environ:
+                exp_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config, os.environ['SLURM_JOBID']])
+            else:
+                exp_dir = os.path.join(*[self.root_dir, 'sweeps', self.sweep_id, self.config])
         else:
             exp_dir = os.path.join(*[self.root_dir, 'expts', self.config])
 
@@ -324,7 +323,6 @@ class Pix2PixTrainer():
     def train_one_epoch(self):
         tr_time = 0
         self.pix2pix_model.set_train()
-        batch_size = self.params.local_batch_size # batch size per gpu
 
         tr_start = time.time()
         g_time = 0.
@@ -332,6 +330,7 @@ class Pix2PixTrainer():
         data_time = 0.
         afno_time = 0.
         n_wind = self.params.afno_wind_N_channels
+        n_channels = self.params.input_nc
         for i, (image, target) in enumerate(self.train_data_loader, 0):
             self.iters += 1
             timer = time.time()
@@ -339,11 +338,17 @@ class Pix2PixTrainer():
             data_time += time.time() - timer
             self.pix2pix_model.zero_all_grad()
 
+            if self.params.DEBUG and self.params.prev_precip_input:
+                assert data[0][:, n_wind].shape == data[1][:, 0].shape, \
+                    f'unexpected target shape: {data[1].shape}'
+                assert not torch.all(data[0][:, n_wind + 1] == data[1]), \
+                    f'train_one_epoch, i={i}: input precip channel is the same as target precip!'
+
             timer = time.time()
             if self.params.train_on_afno_wind:
                 with torch.no_grad():
                     afno_pred = self.afno_wind(data[0][:, :n_wind])
-                    if self.params.add_grid or self.params.orography:
+                    if n_channels > n_wind:
                         afno_pred = torch.cat([afno_pred, data[0][:, n_wind:]], dim=1)
                     data = (afno_pred, data[1])
             afno_time += time.time() - timer
@@ -409,8 +414,7 @@ class Pix2PixTrainer():
         binned_log_l1 = {}
         # inps = []
         n_wind = self.params.afno_wind_N_channels
-        nc, iw ,ih = self.params.output_nc, self.params.img_size[0], self.params.img_size[1]
-        loop = time.time()
+        n_channels = self.params.input_nc
         acctime = 0.
         g_time = 0.
         ens_time = 0.
@@ -422,15 +426,22 @@ class Pix2PixTrainer():
         with torch.inference_mode():
             for idx, (image, target) in enumerate(self.valid_data_loader):
                 timer = time.time()
-                assert image.shape[1] == self.params.input_nc, f'image.shape: {image.shape}'
+                assert image.shape[1] == n_channels, f'image.shape: {image.shape}'
                 data = (image.to(self.device), target.to(self.device))
                 tar_unlog = unlog_tp_torch(data[1], self.params.precip_eps)
                 data_time += time.time() - timer
+
+                if self.params.DEBUG and self.params.prev_precip_input:
+                    assert data[0][:, n_wind].shape == data[1][:, 0].shape, \
+                        f'unexpected target shape: {data[1].shape}'
+                    assert not torch.all(data[0][:, n_wind + 1] == data[1]), \
+                        f'validate_one_epoch, idx={i}: input precip channel is the same as target precip!'
 
                 timer = time.time()
                 afno_pred = None
                 if self.params.afno_validate or self.params.train_on_afno_wind:
                     afno_wind_pred = self.afno_wind(data[0][:, :n_wind])
+
                     if self.params.afno_validate:
                         afno_pred = self.afno_precip(afno_wind_pred)
                         afno_preds.append(afno_pred.detach().cpu())
@@ -441,8 +452,9 @@ class Pix2PixTrainer():
                         afno_acc.append(weighted_acc_torch_channels(afno_unlog - self.tp_tm,
                                                                     tar_unlog - self.tp_tm))
                         afno_rmse.append(weighted_rmse_torch_channels(afno_unlog, tar_unlog))
+
                     if self.params.train_on_afno_wind:
-                        if self.params.add_grid:
+                        if n_channels > n_wind:
                             afno_wind_pred = torch.cat([afno_wind_pred, data[0][:, n_wind:]], dim=1)
                         data = (afno_wind_pred, data[1])
                 afnotime += time.time() - timer
@@ -550,6 +562,9 @@ class Pix2PixTrainer():
                 preds.append(gen.detach().cpu())
                 targets.append(data[1].detach().cpu())
                 # inps.append(inp.detach().cpu())
+
+                if self.params.DEBUG and idx > 0 and (idx % (self.params.log_every_n_steps * 4)) == 0:
+                    break
 
         timer = time.time()
         preds = torch.cat(preds)

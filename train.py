@@ -1,9 +1,5 @@
-import os, sys, time
-import numpy as np
+import os
 import argparse
-import random
-import torch
-import torchvision
 
 import torch.distributed as dist
 import wandb
@@ -28,7 +24,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
-     
+
     trainer = Pix2PixTrainer(params, args)
     if args.sweep_id and trainer.world_rank==0:
         wandb_dir = os.path.join(*[args.root_dir, 'sweeps', args.sweep_id, args.config])
