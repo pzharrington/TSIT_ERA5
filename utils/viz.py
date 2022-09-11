@@ -30,39 +30,38 @@ def viz_fields(flist):
     plt.subplot(rows,1,3)
     err = pred - tar
 
+    err_title = f'TSIT error (max absolute err={np.abs(err).max():.4f})'
+
     if afno is not None:
         afno_err = afno - tar
         sc_err = np.abs(afno_err).max()
+        err_title += ', bounded by +/- max absolute AFNO error'
     else:
         sc_err = np.abs(err).max()
 
-        plt.imshow(err, norm=TwoSlopeNorm(0., -sc_err, sc_err), cmap='bwr')
-        plt.colorbar(shrink=0.4, location='bottom', pad=0.05, extend='both')
-        err_title = f'TSIT error (max absolute err={np.abs(err).max():.4f})'
-        if afno is not None:
-             err_title += ', bounded by +/- max absolute AFNO error'
-        plt.title(err_title)
+    plt.imshow(err, norm=TwoSlopeNorm(0., -sc_err, sc_err), cmap='bwr')
+    plt.colorbar(shrink=0.4, location='bottom', pad=0.05, extend='both')
+    plt.title(err_title)
 
-        if afno is not None:
-            plt.subplot(rows,1,4)
-            plt.imshow(afno, cmap='Blues', norm=Normalize(0., sc))
-            plt.colorbar(shrink=0.4, location='bottom', pad=0.05, extend='max')
-            plt.title(f'AFNO (max: {afno.max():.4f}), bounded by Truth max')
+    if afno is not None:
+        plt.subplot(rows,1,4)
+        plt.imshow(afno, cmap='Blues', norm=Normalize(0., sc))
+        plt.colorbar(shrink=0.4, location='bottom', pad=0.05, extend='max')
+        plt.title(f'AFNO (max: {afno.max():.4f}), bounded by Truth max')
 
-            plt.subplot(rows,1,5)
-            afno_err = afno - tar
-            plt.imshow(afno_err,
-                       norm=TwoSlopeNorm(0., -sc_err, sc_err), cmap='bwr')
+        plt.subplot(rows,1,5)
+        plt.imshow(afno_err,
+                   norm=TwoSlopeNorm(0., -sc_err, sc_err), cmap='bwr')
+        plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
+        plt.title(f'AFNO error (max absolute err={np.abs(afno_err).max():.4f})')
+
+        abs_err_diff = np.log1p(np.abs(err)) - np.log1p(np.abs(afno_err))
+        sc = np.abs(abs_err_diff).max()
+        if sc > 0.:
+            plt.subplot(rows,1,6)
+            plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., -sc, sc), cmap='bwr')
             plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
-            plt.title(f'AFNO error (max absolute err={np.abs(afno_err).max():.4f})')
-
-            abs_err_diff = np.log1p(np.abs(err)) - np.log1p(np.abs(afno_err))
-            sc = np.abs(abs_err_diff).max()
-            if sc > 0.:
-                plt.subplot(rows,1,6)
-                plt.imshow(abs_err_diff, norm=TwoSlopeNorm(0., -sc, sc), cmap='bwr')
-                plt.colorbar(shrink=0.4, location='bottom', pad=0.05)
-                plt.title(f'Difference in log1p absolute error (blue = TSIT better): min={abs_err_diff.min():.4f}, max={abs_err_diff.max():.4f}, mean={abs_err_diff.mean():.4f}')
+            plt.title(f'Difference in log1p absolute error (blue = TSIT better): min={abs_err_diff.min():.4f}, max={abs_err_diff.max():.4f}, mean={abs_err_diff.mean():.4f}')
 
     plt.tight_layout()
     return f
