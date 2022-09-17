@@ -36,10 +36,8 @@ def reshape_fields(img, inp_or_tar, crop_size_x, crop_size_y,rnd_x, rnd_y, param
     n_grid_channels = 0 # updated when creating the grid
     in_channels = np.arange(params.afno_wind_N_channels) if not train and params.afno_validate else params.in_channels
     channels = in_channels if inp_or_tar =='inp' else params.out_channels
-    # mins = np.load(params.min_path)[:, channels]
-    # maxs = np.load(params.max_path)[:, channels]
-    mins = 0 # not used
-    maxs = 0 # not used
+    mins = np.load(params.min_path)[:, channels]
+    maxs = np.load(params.max_path)[:, channels]
     means = np.load(params.global_means_path)[:, channels]
     stds = np.load(params.global_stds_path)[:, channels]
     if crop_size_x == None:

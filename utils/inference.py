@@ -1,12 +1,11 @@
 import os
 import re
-import sys
 import glob
 import h5py
+import time
 import pickle
+import logging
 import numpy as np
-import pandas as pd
-import torch.nn.functional as F
 
 from models.pix2pix_model import Pix2PixModel
 from models.afnonet import AFNONet, PrecipNet, load_afno
@@ -14,11 +13,12 @@ from utils.viz import *
 from utils.YParams import *
 from utils.spectra_metrics import *
 from utils.weighted_acc_rmse import weighted_acc_torch_channels, weighted_rmse_torch_channels, \
-    unlog_tp_torch, lat, latitude_weighting_factor_torch
-from utils.precip_hists import precip_histc, precip_histc2, precip_histc3, binned_precip_log_l1
+    unlog_tp_torch, top_quantiles_error_torch
+from utils.precip_hists import precip_histc2, precip_histc3, binned_precip_log_l1
 from utils.data_loader_multifiles import GetDataset
+from utils.img_utils import reshape_fields, reshape_precip
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 
@@ -115,10 +115,9 @@ def setup_save_dir(run,
     return save_dir, overwrite
 
 
-def setup_params(run, train=False,
+def setup_params(run,
                  root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative',
-                 base_params=None,
-                 base_config_path='/global/homes/j/jpduncan/intern/TSIT_ERA5/config/tsit.yaml'):
+                 base_params=None):
     """
     run: see setup_run_path
     """
@@ -127,7 +126,7 @@ def setup_params(run, train=False,
     # load params
     config_path = f'{run_path}/hyperparams.yaml'
     if base_params is None:
-        params = YParams(base_config_path, 'base')
+        params = YParams('../config/tsit.yaml', 'base')
     else:
         params = base_params
 
@@ -142,15 +141,19 @@ def setup_params(run, train=False,
                     val = val == 'True'
                 params[key] = type(params[key])(val)
 
+    if params.log_to_screen:
+        params.log()
+
     return params
 
 
-def setup_replicas(run, train=False, devs=[0],
+def setup_replicas(run,
+                   train=False,
+                   devs=[0],
                    use_best_acc=True,
                    use_best_binned_log_l1=False,
                    root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative',
-                   base_params=None,
-                   base_config_path='/global/homes/j/jpduncan/intern/TSIT_ERA5/config/tsit.yaml'):
+                   base_params=None):
     """
     run: see setup_run_path
     """
@@ -168,7 +171,7 @@ def setup_replicas(run, train=False, devs=[0],
     assert not (use_best_acc and use_best_binned_log_l1), \
         'use_best or use_best_binned_log_l1, or neither, but not both'
 
-    params = setup_params(run, train, root_path, base_params, base_config_path)
+    params = setup_params(run, root_path, base_params)
 
     if use_best_acc:
         ckpt_path = 'ckpt_best.tar'
@@ -181,7 +184,7 @@ def setup_replicas(run, train=False, devs=[0],
 
     ckpt_path = f'{run_path}/checkpoints/{ckpt_path}'
 
-    pix2pix_models = [None for dev in range(max(devs) + 1)]
+    pix2pix_models = [None for _ in range(max(devs) + 1)]
     for dev in devs:
         # load model
         pix2pix_model = Pix2PixModel(params, distributed=False, local_rank=dev, device=dev, isTrain=train)
@@ -213,8 +216,8 @@ def setup_data(params,
     local_batch_size = global_batch_size // len(devs)
 
     # get data loaders
-    data_loaders = [None for dev in range(max(devs) + 1)]
-    tp_tms = [None for dev in range(max(devs) + 1)]
+    data_loaders = [None for _ in range(max(devs) + 1)]
+    tp_tms = [None for _ in range(max(devs) + 1)]
     for dev in devs:
         sampler = DistributedSampler(dataset,
                                      num_replicas=len(devs),
@@ -233,6 +236,46 @@ def setup_data(params,
         tp_tms[dev] = torch.as_tensor(np.load(params.precip_time_means)).to(f'cuda:{dev}')
 
     return dataset, data_loaders, tp_tms
+
+
+def setup_data_h5py(params, test_set=False):
+    """Load validation or test set.
+    """
+
+    if params.orography:
+        params.orog = h5py.File(params.orography_path, 'r')['orog'][0:720].astype(np.float32)
+    else:
+        params.orog = None
+
+    data_name = 'test' if test_set else 'validation'
+
+    # load the test wind data
+    if test_set:
+        files_paths = glob.glob(params.inf_data_path + "/*.h5")
+    else:
+        files_paths = glob.glob(params.valid_data_path + "/*.h5")
+    files_paths.sort()
+
+    if params.log_to_screen:
+        logging.info(f'Loading {data_name} data')
+        logging.info('Path to data: {}'.format(files_paths[0]))
+    data_full = h5py.File(files_paths[0], 'r')['fields']
+
+    # load the test precip data
+    if test_set:
+        path = params.precip + '/out_of_sample'
+    else:
+        path = params.precip + '/test'
+    precip_paths = glob.glob(path + "/*.h5")
+    precip_paths.sort()
+
+    if params.log_to_screen:
+        logging.info(f'Loading {data_name} precip data')
+        logging.info('Path to precip data: {}'.format(precip_paths[0]))
+
+    data_tp_full = h5py.File(precip_paths[0], 'r')['tp']
+
+    return data_full, data_tp_full
 
 
 def setup_afno_wind(params, devs=[0]):
@@ -334,7 +377,7 @@ def gen_precip(data_loader, pix2pix_model, tp_tm,
                     n_wind = params['afno_wind_N_channels']
                     afno_wind = afno_wind_model(data[0][:, :n_wind]).detach()
                     if params.train_on_afno_wind:
-                        if params.add_grid:
+                        if params.input_nc > n_wind:
                             data = (torch.cat([afno_wind, data[0][:, n_wind:]], dim=1), data[1])
                         else:
                             data = (afno_wind, data[1])
@@ -524,15 +567,271 @@ def validation(runs,
     return summaries, bin_edges
 
 
+def gaussian_perturb(x, level=0.01, device=0):
+    noise = level * torch.randn(x.shape).to(device, dtype=torch.float)
+    return (x + noise)
+
+
+def autoregressive_inference(params,
+                             ic,
+                             inf_data_full,
+                             inf_data_tp_full,
+                             model,
+                             model_wind,
+                             n_pert=0,
+                             n_level=0.0,
+                             bins=300, bins_max=11.):
+    ic = int(ic)
+    # initialize global variables
+    device = model.device # torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+    dt = int(params.dt)
+    prediction_length = int(params.prediction_length/dt)
+    n_history = params.n_history
+    img_shape_x = params.img_size[0]
+    img_shape_y = params.img_size[1]
+    in_channels = np.array(params.in_channels)
+    out_channels = np.array(params.out_channels)
+    n_in_channels = len(in_channels)
+    n_out_channels = len(out_channels)
+    m = torch.as_tensor(np.load(params.precip_time_means)).to(device)
+
+    # initialize memory for image sequences and RMSE/ACC
+    rmse = torch.zeros((prediction_length, n_out_channels)).to(device, dtype=torch.float)
+    acc = torch.zeros((prediction_length, n_out_channels)).to(device, dtype=torch.float)
+    binned_log_l1 = torch.zeros((prediction_length, n_out_channels)).to(device, dtype=torch.float)
+    tqe = torch.zeros((prediction_length, n_out_channels)).to(device, dtype=torch.float)
+
+    # wind seqs
+    if n_history > 0:
+        seq_real = torch.zeros((prediction_length+n_history, n_in_channels, img_shape_x, img_shape_y)).to(device, dtype=torch.float)
+        seq_pred = torch.zeros((prediction_length+n_history, n_in_channels, img_shape_x, img_shape_y)).to(device, dtype=torch.float)
+
+    # precip sequences
+    seq_real_tp = torch.zeros((prediction_length, n_out_channels, img_shape_x, img_shape_y)).to(device, dtype=torch.float)
+    seq_pred_tp = torch.zeros((prediction_length, n_out_channels, img_shape_x, img_shape_y)).to(device, dtype=torch.float)
+
+    pred_hists = torch.zeros((prediction_length, bins)).to(device, dtype=torch.float)
+    tar_hists = torch.zeros((prediction_length, bins)).to(device, dtype=torch.float)
+
+    # standardize
+    inf_data = inf_data_full[ic:(ic+prediction_length*dt+n_history*dt):dt, in_channels, 0:720] # extract test data from first year
+    inf_data = torch.cat([
+        torch.unsqueeze(
+            reshape_fields(inf_data[i], 'inp',
+                           params.crop_size_x, params.crop_size_y,
+                           rnd_x=0, rnd_y=0, params=params, y_roll=0,
+                           train=False, normalize=True, orog=params.orog),
+            dim=0
+        )
+        for i in range(inf_data.shape[0])
+    ], dim=0)
+    inf_data = inf_data.to(device)
+
+    # log normalize
+    len_ic = prediction_length*dt
+    inf_data_tp = inf_data_tp_full[ic:(ic+prediction_length*dt):dt, 0:720].reshape(len_ic,n_out_channels,720,img_shape_y) #extract test data from first year
+    inf_data_tp = torch.cat([
+        torch.unsqueeze(
+            reshape_precip(inf_data_tp[i],
+                           params.crop_size_x, params.crop_size_y,
+                           rnd_x=0, rnd_y=0, params=params, y_roll=0,
+                           train=False, normalize=True),
+            dim=0
+        )
+        for i in range(inf_data.shape[0])
+    ], dim=0)
+    inf_data_tp = inf_data_tp.to(device)
+
+    if 'prev_precip_input' in params:
+        prev_precip_input = params.prev_precip_input
+    else:
+        prev_precip_input = False
+
+    n_wind = params.afno_wind_N_channels
+
+    if params.log_to_screen:
+        logging.info('Begin autoregressive+tp inference')
+
+    for pert in range(max(1, n_pert)):
+        if n_pert > 0:
+            logging.info('Running ensemble {}/{}'.format(pert+1, n_pert))
+        else:
+            logging.info('Running control')
+        with torch.inference_mode():
+            for i in range(inf_data.shape[0]):
+
+                if i == 0:  # start of sequence
+                    first = inf_data[0:n_history+1]
+                    first_tp = inf_data_tp[0:1]
+                    future_tp = inf_data_tp[1]
+
+                    if n_history > 0:
+                        for h in range(n_history+1):
+                            seq_real[h] = first[h*n_in_channels:(h+1)*n_in_channels][0:n_in_channels]  # extract history from 1st
+                            seq_pred[h] = seq_real[h]
+
+                    seq_real_tp[0] = first_tp
+                    seq_pred_tp[0] = first_tp
+
+                    if n_level > 0. and n_pert != 0:
+                        first = gaussian_perturb(first, level=n_level, device=device)  # perturb the ic
+
+                    future_pred = model_wind(first[:, :n_wind])
+
+                    if prev_precip_input:
+                        future_pred = torch.cat([future_pred, first_tp], dim=1)
+
+                    if first.shape[1] > n_wind:
+                        future_pred = torch.cat([future_pred, first[:, n_wind:]], dim=1)
+
+                    future_pred_tp, _ = model.generate_fake(future_pred, first_tp, validation=True)
+
+                elif i < prediction_length - 1:
+                    future_tp = inf_data_tp[i+1]
+
+                    future_pred_ = model_wind(future_pred[:, :n_wind]) # autoregressive step
+
+                    if prev_precip_input:
+                        future_pred_ = torch.cat([future_pred_, future_pred_tp], dim=1)
+
+                    if first.shape[1] > n_wind:
+                        future_pred = torch.cat([future_pred_, first[:, n_wind:]], dim=1)
+                    else:
+                        future_pred = future_pred_
+
+                    future_pred_tp, _ = model.generate_fake(future_pred, first_tp, validation=True)  # tp diagnosis
+
+                if i < prediction_length - 1: # not on the last step
+                    # add up predictions and average later
+                    seq_pred_tp[n_history+i+1] += torch.squeeze(future_pred_tp, 0)
+                    seq_real_tp[n_history+i+1] += future_tp
+
+    # Compute metrics
+    for i in range(inf_data.shape[0]):
+
+        if i > 0 and n_pert > 0:
+            # avg images
+            seq_pred_tp[i] /= n_pert
+            seq_real_tp[i] /= n_pert
+
+        pred = torch.unsqueeze(seq_pred_tp[i], 0)
+        tar = torch.unsqueeze(seq_real_tp[i], 0)
+        pred_unlog = unlog_tp_torch(pred)
+        tar_unlog = unlog_tp_torch(tar)
+        rmse[i] = weighted_rmse_torch_channels(pred_unlog, tar_unlog)
+        acc[i] = weighted_acc_torch_channels(pred_unlog-m, tar_unlog-m)
+        pred_hist, tar_hist = precip_histc2(pred, tar, bins=bins, max=bins_max)
+        pred_hists[i] = pred_hist
+        tar_hists[i] = tar_hist
+        binned_log_l1[i] = binned_precip_log_l1(pred, tar, pred_hist, tar_hist)
+        tqe[i] = top_quantiles_error_torch(pred_unlog, tar_unlog)
+
+        if params.log_to_screen:
+            log_str = f'Timestep {i} of {prediction_length}. TP RMS Error: {rmse[i,0]:.4f}, ACC: {acc[i,0]:.4f}'
+            log_str += f', binned log L1: {binned_log_l1[i,0]:.4f} , TQE: {tqe[i,0]:.4f}'
+            logging.info(log_str)
+
+    seq_real_tp = seq_real_tp.cpu().numpy()
+    seq_pred_tp = seq_pred_tp.cpu().numpy()
+    rmse = rmse.cpu().numpy()
+    acc = acc.cpu().numpy()
+    binned_log_l1 = binned_log_l1.cpu().numpy()
+    tqe = tqe.cpu().numpy()
+    pred_hists = pred_hists.cpu().numpy()
+    tar_hists = tar_hists.cpu().numpy()
+
+    out = {
+        'rmse': np.expand_dims(rmse, axis=0),
+        'acc': np.expand_dims(acc, axis=0),
+        'binned_log_l1': np.expand_dims(binned_log_l1, axis=0),
+        'tqe': np.expand_dims(tqe, axis=0),
+        'pred_hists': np.expand_dims(pred_hists, axis=0),
+        'tar_hists': np.expand_dims(tar_hists, axis=0),
+    }
+
+    return out
+
+
+def rollout(run,
+            ics,
+            n_pert=0,
+            n_level=0.0,
+            device=0,
+            use_best_acc=True,
+            use_best_binned_log_l1=False,
+            test_set=False,
+            root_path='/pscratch/sd/j/jpduncan/weatherbenching/ERA5_generative',
+            base_params=None,
+            log_to_screen=False):
+    """AR rollout for validation or test data.
+    """
+
+    # torch.cuda.set_device(device)
+    torch.backends.cudnn.benchmark = True
+
+    model = setup_replicas(run, devs=[device],
+                           use_best_acc=use_best_acc,
+                           use_best_binned_log_l1=use_best_binned_log_l1,
+                           root_path=root_path,
+                           base_params=base_params)[device]
+    params = model.params
+
+    if log_to_screen:
+        logging.info('Loaded trained model checkpoint from {}'.format(params.checkpoint_path))
+
+    assert params.train_on_afno_wind, 'model must be trained on afno wind'
+
+    if log_to_screen:
+        logging.info('Loading ANFO wind model from {}'.format(params.afno_model_wind_path))
+
+    afno_wind = setup_afno_wind(params, devs=[device])[device]
+
+    # get data
+    data_full, data_tp_full = setup_data_h5py(params, test_set=test_set)
+
+    # initialize dict for image sequences and metrics
+    ar_out = {
+        'ics': []
+    }
+
+    n_ics = len(ics)
+
+    for i, ic in enumerate(ics):
+        with torch.inference_mode():
+            t1 = time.time()
+            logging.info("Initial condition {} of {}".format(i+1, n_ics))
+            ar_out_ = autoregressive_inference(params=params,
+                                               ic=ic,
+                                               inf_data_full=data_full,
+                                               inf_data_tp_full=data_tp_full,
+                                               model=model,
+                                               model_wind=afno_wind,
+                                               n_pert=n_pert,
+                                               n_level=n_level)
+
+            for key, val in ar_out_.items():
+                ar_out.setdefault(key, []).append(val)
+
+            ar_out['ics'].append(ic)
+
+            t2 = time.time()-t1
+            logging.info("Time for rollout for ic {} = {}".format(i, t2))
+
+    for key, val in ar_out.items():
+        if key == 'ics':
+            ar_out[key] = np.array(val)
+        else:
+            ar_out[key] = np.concatenate(val, axis=0)
+
+    return ar_out
+
+
 def load_inference_results(*config_names: str,
-                           root_dir: str = '/global/cfs/cdirs/dasrepo/jpduncan/weatherbenching/ERA5_generative',
-                           config_yaml_file: str = '../config/tsit.yaml'):
+                           root_dir: str = '/global/cfs/cdirs/dasrepo/jpduncan/weatherbenching/ERA5_generative'):
     """
     config_name: a inf_* config name
     root_dir: path to directory where inference_ensemble.py outputs are saved
     """
-    # params = YParams(os.path.abspath(config_yaml_file), config_name)
-
     results = {}
 
     for config_name in config_names:
@@ -544,8 +843,6 @@ def load_inference_results(*config_names: str,
         assert os.path.isdir(inf_dir), f'{inf_dir} doesn\'t exist'
 
         subdirs = next(os.walk(inf_dir))[1]
-
-        results_files = []
 
         for subdir in subdirs:
             inner = inner_dict.setdefault(subdir, [])
