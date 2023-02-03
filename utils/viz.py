@@ -237,12 +237,13 @@ def viz_spectra(spectra):
 
 
 def viz_inference(inference_results: dict,
-                  inf_name='control',
+                  inf_names=['control'],
                   metric_name='acc',
                   t_range=(1, 16),
                   dt=6):
 
     colors = ['g', 'c', 'm', 'darkorange', 'lime', 'cornflowerblue']
+    lsty = ['-', '--']
 
     f = plt.figure(figsize=(15,8))
 
@@ -258,18 +259,22 @@ def viz_inference(inference_results: dict,
         else:
             color = colors[i-subtr]
 
-        if metric_name in val[inf_name][0].keys():
+        for j, inf_name in enumerate(inf_names):
 
-            metric = val[inf_name][0][metric_name][:, t0:tf]
-            mean = metric.mean(axis=0).ravel()
-            first_qrt = np.quantile(metric, 0.25, axis=0).ravel()
-            third_qrt = np.quantile(metric, 0.75, axis=0).ravel()
+            if inf_name in val.keys():
 
-            t = np.arange(t0 * dt, tf * dt, dt)
-            plt.plot(t, mean, marker='.', label=key, color=color)
-            plt.fill_between(t, first_qrt, third_qrt, color=color, alpha=0.1)
+                if metric_name in val[inf_name].keys():
 
-    plt.title(f'{inf_name} {metric_name}')
+                    metric = val[inf_name][metric_name][:, t0:tf]
+                    mean = np.nanmean(metric, axis=0).ravel()
+                    first_qrt = np.nanquantile(metric, 0.25, axis=0).ravel()
+                    third_qrt = np.nanquantile(metric, 0.75, axis=0).ravel()
+
+                    t = np.arange(t0 * dt, tf * dt, dt)
+                    plt.plot(t, mean, marker='.', label=f'{key} {inf_name}', color=color, linestyle=lsty[j % 2])
+                    plt.fill_between(t, first_qrt, third_qrt, color=color, alpha=0.1)
+
+    plt.title(f'{metric_name}')
     plt.xlim(0, (tf - 1) * dt)
     plt.xticks([0, 24, 48, 72])
     plt.legend()

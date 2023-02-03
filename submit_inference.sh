@@ -14,6 +14,7 @@ IMAGE=nersc/pytorch:ngc-22.02-v0
 PYTHONUSERBASE=$HOME/.local/perlmutter/nersc-pytorch-22.02-v0
 
 export HDF5_USE_FILE_LOCKING=FALSE
+export NCCL_NET_GDR_LEVEL=PHB
 export MASTER_ADDR=$(hostname)
 
 args="${@}"

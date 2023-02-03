@@ -1,6 +1,5 @@
 #!/bin/bash
 
-ROOT_DIR=/global/cfs/cdirs/dasrepo/jpduncan/weatherbenching/ERA5_generative
 IMAGE=nersc/pytorch:ngc-22.02-v0
 PYTHONUSERBASE=$HOME/.local/perlmutter/nersc-pytorch-22.02-v0
 
@@ -16,6 +15,5 @@ srun --mpi=pmi2 -u -l \
      shifter --module gpu --image=$IMAGE --env PYTHONUSERBASE=$PYTHONUSERBASE \
      bash -c "
        source export_DDP_vars.sh
-       python inference/inference_ensemble.py \
-        --override_dir=${ROOT_DIR} ${args}
+       python inference/inference_ensemble.py ${args}
      "

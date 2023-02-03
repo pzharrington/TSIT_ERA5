@@ -8,6 +8,7 @@
 #SBATCH --gpus-per-node=4
 #SBATCH --cpus-per-task=32
 #SBATCH --image=nersc/pytorch:ngc-22.02-v0
+#SBATCH --output=joblogs/slurm-%j.out
 
 # ROOT_DIR=$SCRATCH/weatherbenching/ERA5_generative
 ROOT_DIR=/global/cfs/cdirs/dasrepo/jpduncan/weatherbenching/ERA5_generative

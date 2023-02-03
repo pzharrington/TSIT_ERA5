@@ -4,3 +4,4 @@ __pycache__/
 joblogs
 wandb/
 config/sweeps.yaml
+.dir-locals.el

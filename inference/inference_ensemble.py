@@ -1,12 +1,9 @@
 import os
 import sys
-import glob
-import time
 import h5py
 import numpy as np
 import logging
 import argparse
-import torch
 
 import torch.distributed as dist
 
@@ -34,6 +31,14 @@ if __name__ == '__main__':
     parser.add_argument("--override_dir", default=None, type=str, help='Path to store inference outputs')
     parser.add_argument("--use_best_acc", action='store_true')
     parser.add_argument("--use_best_binned_log_l1", action='store_true')
+    parser.add_argument("--viz", action='store_true',
+                        help='visualize ics; can be used with --n_ics; ignored if --viz_ics is used')
+    parser.add_argument("--viz_ics", default=[], type=int, nargs='*',
+                        help='ics to visualize, e.g., --viz_ics 0 8 16 24')
+    parser.add_argument("--viz_ens", action='store_true',
+                        help='if true, save all ensemble outputs (probably don\'t use without n_dt / n_ics / viz_ics)')
+    parser.add_argument("--n_dt", default=None, type=int,
+                        help='number of time steps to predict; if None, uses "prediction_length" from config')
     parser.add_argument("--n_ics", default=None, type=int, help='Number of ICs to run')
     parser.add_argument("--overwrite", action='store_true')
     parser.add_argument("--debug", action='store_true')
@@ -59,9 +64,28 @@ if __name__ == '__main__':
     params['world_rank'] = world_rank
     params['world_size'] = world_size
 
-    num_samples = 1460 - params.prediction_length
-    stop = num_samples
-    ics = np.arange(0, stop, DECORRELATION_TIME)
+    viz = args.viz
+    viz_ens = args.viz_ens
+    dir_name = 'inference_ensemble'
+    if len(args.viz_ics) > 0:
+        assert not args.debug, 'No reason to use --debug and --viz_ics at the same time'
+        assert args.n_ics is None, 'No reason to use --n_ics and --viz_ics at the same time'
+        ics = args.viz_ics
+        # if len(viz_ics) < world_size:
+        #     # just run a single ic per rank
+        #     ics = [ics[0] + i*DECORRELATION_TIME for i in range(world_size)]
+        viz = True
+        if params.log_to_screen:
+            logging.info(f"Running viz for ics {ics}")
+    else:
+        num_samples = 1460 - params.prediction_length
+        stop = num_samples
+        ics = np.arange(0, stop, DECORRELATION_TIME)
+
+    if viz_ens:
+        dir_name = dir_name + '_viz_ens'
+    elif viz:
+        dir_name = dir_name + '_viz'
 
     n_pert = args.n_pert
 
@@ -75,19 +99,18 @@ if __name__ == '__main__':
 
     # Set up directory
     if args.override_dir is not None:
-        save_dir = os.path.join(args.override_dir, args.config, 'inference_ensemble', run_name)
+        save_dir = os.path.join(args.override_dir, args.config, dir_name, run_name)
     else:
-        save_dir = os.path.join(params.experiment_dir, 'inference_ensemble', run_name)
+        assert False, 'Please use --override_dir'
+        # save_dir = os.path.join(params.experiment_dir, dir_name, run_name)
 
     if args.run_num is not None:
-        save_dir = os.path.join(save_dir, str(run_num))
+        save_dir = os.path.join(save_dir, str(args.run_num))
 
-    if world_rank == 0:
-        if not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
+    os.makedirs(save_dir, exist_ok=True)
 
     if params.log_to_screen:
-        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(save_dir, 'inference_ensemble.log'))
+        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(save_dir, f'{dir_name}.log'))
         logging_utils.log_versions()
 
     try:
@@ -109,19 +132,23 @@ if __name__ == '__main__':
     else:
         logging.info("Doing control")
 
-    h5name = os.path.join(save_dir, 'rollout'+ ar_inf_filetag +'.h5')
+    h5name = os.path.join(save_dir, f'{world_rank:02d}_rollout'+ ar_inf_filetag +'.h5')
 
     append = os.path.isfile(h5name)
+    if append and args.overwrite:
+        os.remove(h5name)
+        append = False
+
     n_prev = 0
-    if append:
-        if args.overwrite and world_rank == 0:
-            os.remove(h5name)
-            append = False
-        elif not args.overwrite:
-            with h5py.File(h5name, 'r') as f:
-                prev_ics = f['ics'][:]
-                n_prev = len(prev_ics)
-                ics = [ic for ic in ics if ic not in prev_ics]
+    if not args.overwrite:
+        for i in range(world_size):
+            fname = os.path.join(save_dir, f'{i:02d}_rollout'+ ar_inf_filetag + '.h5')
+            if os.path.isfile(fname):
+                with h5py.File(fname, 'r') as f:
+                    prev_ics = f['ics'][:]
+                    if fname == h5name:
+                        n_prev = len(prev_ics)
+                    ics = [ic for ic in ics if ic not in prev_ics]
 
     n_ics = args.n_ics
     if args.debug:
@@ -132,7 +159,15 @@ if __name__ == '__main__':
 
     tot_ics = len(ics)
 
-    if tot_ics > 0:
+    if args.n_dt is not None:
+        assert args.n_dt < params.prediction_length, f'use n_dt < params.prediction_length = {params.prediction_length}'
+        params.prediction_length = args.n_dt + 1
+
+    if tot_ics == 0:
+
+        logging.info('All ICs already completed')
+
+    else:
 
         # run autoregressive inference for multiple initial conditions
         # parallelize over initial conditions
@@ -154,6 +189,8 @@ if __name__ == '__main__':
                          use_best_acc=args.use_best_acc,
                          use_best_binned_log_l1=args.use_best_binned_log_l1,
                          test_set=True,
+                         viz=viz,
+                         viz_ens=viz_ens,
                          root_path=args.root_dir,
                          base_params=params,
                          log_to_screen=params.log_to_screen)
@@ -164,30 +201,27 @@ if __name__ == '__main__':
             if params.log_to_screen:
                 logging.info("Saving files at {}".format(h5name))
 
-            dist.barrier()
-            from mpi4py import MPI
-            with h5py.File(h5name, 'a', driver='mpio', comm=MPI.COMM_WORLD) as f:
+            with h5py.File(h5name, 'a') as f:
 
-                start = world_rank*ics_per_proc
+                start = 0
 
                 for key, val in ar_out.items():
                     if key == 'ics':
-                        dset_shape = (n_prev + tot_ics,)
+                        dset_shape = (n_prev + n_ics,)
                         max_shape = (None,)
                     else:
-                        dset_shape = (n_prev + tot_ics, *val.shape[1:])
+                        dset_shape = (n_prev + n_ics, *val.shape[1:])
                         max_shape = (None,*val.shape[1:])
                     if params.log_to_screen:
                         logging.info(f'{key} dataset shape: {dset_shape}')
                     if append:
                         dset = f[key]
-                        dset.resize(n_prev + tot_ics, axis=0)
+                        dset.resize(n_prev + n_ics, axis=0)
                         dset[(n_prev+start):(n_prev+start+n_ics)] = val
                     else:
                         dset = f.create_dataset(key, shape=dset_shape, maxshape=max_shape, dtype=np.float32, chunks=True)
                         dset[start:start+n_ics] = val
 
-            dist.barrier()
         else:
             if params.log_to_screen:
                 logging.info("Saving files at {}".format(h5name))
@@ -195,15 +229,17 @@ if __name__ == '__main__':
             with h5py.File(h5name, 'a') as f:
                 for key, val in ar_out.items():
                     if key == 'ics':
-                        dset_shape = (n_prev + tot_ics,)
+                        dset_shape = (n_prev + n_ics,)
                         max_shape = (None,)
                     else:
-                        dset_shape = (n_prev + tot_ics, *val.shape[1:])
+                        dset_shape = (n_prev + n_ics, *val.shape[1:])
                         max_shape = (None, *val.shape[1:])
                     if append:
                         dset = f[key]
-                        dset.resize(n_prev + tot_ics, axis=0)
+                        dset.resize(n_prev + n_ics, axis=0)
                         dset[n_prev:] = val
                     else:
                         dset = f.create_dataset(key, data=val, shape=dset_shape, maxshape=max_shape, dtype=np.float32, chunks=True)
                         dset[...] = val
+
+    sys.exit(0)

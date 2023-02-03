@@ -136,3 +136,14 @@ def top_quantiles_error_torch(pred: torch.Tensor, target: torch.Tensor) -> torch
     P_tar = torch.quantile(target.view(n,c,h*w), q=qtile, dim=-1)
     P_pred = torch.quantile(pred.view(n,c,h*w), q=qtile, dim=-1)
     return torch.mean(P_pred - P_tar, dim=0)
+
+@torch.jit.script
+def top_rel_quantiles_error_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    qs = 100
+    qlim = 3
+    qcut = 0.1
+    n, c, h, w = pred.size()
+    qtile = 1. - torch.logspace(-qlim, -qcut, steps=qs, device=pred.device)
+    P_tar = torch.quantile(target.view(n,c,h*w), q=qtile, dim=-1)
+    P_pred = torch.quantile(pred.view(n,c,h*w), q=qtile, dim=-1)
+    return torch.mean((P_pred - P_tar) / P_tar, dim=0)
