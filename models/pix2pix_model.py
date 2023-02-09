@@ -1,6 +1,7 @@
+from collections import OrderedDict
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import models.networks as networks
 from torch.nn.parallel import DistributedDataParallel
 
@@ -19,8 +20,14 @@ class Pix2PixModel():
         self.FloatTensor = torch.cuda.FloatTensor
         self.device = device
         self.isTrain = isTrain
+        self.epoch = 0
 
-        self.netG, self.netD, self.netE = self.initialize_networks(params)
+        # recalculate input_nc, in case Pix2PixModel is initialized directly
+        self.params.input_nc = len(self.params.in_channels) + \
+            (self.params.N_grid_channels if self.params.add_grid else 0) + \
+            int(self.params.orography) + int(self.params.prev_precip_input)
+
+        self.netG, self.netD, self.netE = self.initialize_networks(self.params)
         if distributed:
             self.netG = nn.SyncBatchNorm.convert_sync_batchnorm(self.netG)
             self.netD = nn.SyncBatchNorm.convert_sync_batchnorm(self.netD) if self.netD else None
@@ -33,10 +40,17 @@ class Pix2PixModel():
         # set loss functions
         if self.isTrain:
             self.criterionGAN = networks.GANLoss(
-                params.gan_mode, tensor=self.FloatTensor, params=params)
+                self.params.gan_mode, tensor=self.FloatTensor, params=self.params)
             self.criterionFeat = torch.nn.L1Loss()
-            if params.use_vae:
+            if self.params.use_vae:
                 self.KLDLoss = networks.KLDLoss()
+            if self.params.use_ff_loss:
+                num_freq = (self.params.img_size[1] // 2) + 1
+                num_lat = self.params.img_size[0]
+                self.FFLoss = networks.FFLoss(num_freq, num_lat,
+                                              self.params.freq_weighting_ffl,
+                                              self.params.lat_weighting_ffl,
+                                              device=torch.device(self.device))
 
 
     def set_train(self):
@@ -48,6 +62,9 @@ class Pix2PixModel():
         self.netG.eval()
         if self.netD: self.netD.eval()
         if self.netE: self.netE.eval()
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
     def zero_all_grad(self):
         self.netG.zero_grad()
@@ -62,11 +79,28 @@ class Pix2PixModel():
         elif net=='encoder':
             return self.netE.state_dict() if self.netE else None
 
-    def load_state(self, ckpt):
-        self.netG.load_state_dict(ckpt['model_state_G'])
-        if self.netD: self.netD.load_state_dict(ckpt['model_state_D'])
-        if self.netE: self.netE.load_state_dict(ckpt['model_state_E'])
-
+    def load_state(self, ckpt, pretrained_model=False, pretrained_same_arch=True):
+        if not pretrained_model:
+            self.netG.load_state_dict(ckpt['model_state_G'])
+            if self.netD and ckpt['model_state_D'] is not None: self.netD.load_state_dict(ckpt['model_state_D'])
+            if self.netE and ckpt['model_state_E'] is not None: self.netE.load_state_dict(ckpt['model_state_E'])
+        else:
+            for net in ['G', 'D', 'E']:
+                if net == 'G' or (getattr(self, f'net{net}') is not None and
+                                  ckpt[f'model_state_{net}'] is not None):
+                    net_ = getattr(self, f'net{net}')
+                    ckpt_ = ckpt[f'model_state_{net}']
+                    state_dict = net_.state_dict()
+                    new_state_dict = OrderedDict()
+                    for key, val in ckpt_.items():
+                        if key in state_dict.keys():
+                            new_state_dict[key] = val
+                        else:
+                            assert not pretrained_same_arch, \
+                                (f'pretrained parameter named "{key}" not found in Generator state dict; '
+                                 'set params.pretrained_same_arch to False?')
+                    state_dict.update(new_state_dict)
+                    net_.load_state_dict(state_dict)
 
     """
     # Entry point for all calls involving forward pass
@@ -97,7 +131,7 @@ class Pix2PixModel():
         G_params = list(self.netG.parameters())
         if params.use_vae:
             G_params += list(self.netE.parameters())
-        if self.isTrain:
+        if self.isTrain and not params.no_gan_loss:
             D_params = list(self.netD.parameters())
 
         if params.no_TTUR:
@@ -108,14 +142,17 @@ class Pix2PixModel():
             G_lr, D_lr = params.lr / 2, params.lr * 2
 
         optimizer_G = torch.optim.Adam(G_params, lr=G_lr, betas=(beta1, beta2))
-        optimizer_D = torch.optim.Adam(D_params, lr=D_lr, betas=(beta1, beta2))
+        if self.isTrain and not params.no_gan_loss:
+            optimizer_D = torch.optim.Adam(D_params, lr=D_lr, betas=(beta1, beta2))
+        else:
+            optimizer_D = None
 
         return optimizer_G, optimizer_D
 
     
     def initialize_networks(self, params):
         netG = networks.define_G(params).to(self.device)
-        netD = networks.define_D(params).to(self.device) if self.isTrain else None
+        netD = networks.define_D(params).to(self.device) if self.isTrain and not params.no_gan_loss else None
         netE = networks.define_E(params).to(self.device) if params.use_vae else None
 
         return netG, netD, netE
@@ -130,15 +167,17 @@ class Pix2PixModel():
         if self.params.use_vae:
             G_losses['KLD'] = KLD_loss
 
-        if self.params.cat_inp:
-            pred_fake, pred_real = self.discriminate(fake_image, real_image, input_image)
-        else:
-            pred_fake, pred_real = self.discriminate(fake_image, real_image)
+        if not self.params.no_gan_loss:
+            if self.params.cat_inp:
+                pred_fake, pred_real = self.discriminate(fake_image, real_image, input_image)
+            else:
+                pred_fake, pred_real = self.discriminate(fake_image, real_image)
 
-        G_losses['GAN'] = self.criterionGAN(pred_fake, True,
-                                            for_discriminator=False)
+            G_losses['GAN'] = self.criterionGAN(pred_fake, True,
+                                                for_discriminator=False)
 
         if not self.params.no_ganFeat_loss:
+            assert not self.params.no_gan_loss, 'no_gan_loss must be False when using GAN_Feat_loss'
             num_D = len(pred_fake)
             GAN_Feat_loss = self.FloatTensor(1).fill_(0)
             for i in range(num_D):  # for each discriminator
@@ -152,6 +191,8 @@ class Pix2PixModel():
 
         if self.params.use_spec_loss:
             G_losses['Spec'] = self.compute_spec_loss(fake_image, real_image)
+        if self.params.use_ff_loss:
+            G_losses['FFL'] = self.params.lambda_ffl * self.FFLoss(fake_image, real_image)
         if self.params.use_l1_loss:
             G_losses['L1'] = self.params.lambda_l1*self.criterionFeat(fake_image, real_image)
 
@@ -188,12 +229,12 @@ class Pix2PixModel():
         true_fft = torch.fft.rfft2(style, norm='ortho')
         unweighted_loss = self.criterionFeat(torch.log1p(fake_fft.abs()), torch.log1p(true_fft.abs()))
         return unweighted_loss*self.params.lambda_spec
-        
 
-    def generate_fake(self, input_image, real_image, compute_kld_loss=False):
+
+    def generate_fake(self, input_image, real_image, compute_kld_loss=False, validation=False):
         z = None
         KLD_loss = None
-        if self.params.use_vae:
+        if self.params.use_vae and not validation:
             z, mu, logvar = self.encode_z(real_image)
             if compute_kld_loss:
                 KLD_loss = self.KLDLoss(mu, logvar) * self.params.lambda_kld

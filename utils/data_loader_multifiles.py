@@ -5,10 +5,8 @@ import random
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
-from torch import Tensor
 import h5py
-import math
-#import cv2
+
 from utils.img_utils import reshape_fields, reshape_precip
 
 
@@ -28,6 +26,7 @@ def get_data_loader(params, distributed, train):
 
   return dataloader, dataset, sampler
 
+
 class GetDataset(Dataset):
   def __init__(self, params, location, train):
     self.params = params
@@ -35,7 +34,10 @@ class GetDataset(Dataset):
     self.train = train
     self.dt = params.dt
     self.n_history = params.n_history
-    self.in_channels = np.array(params.in_channels)
+    if not train and params.afno_validate:
+      self.in_channels = np.arange(params.afno_wind_N_channels)
+    else:
+      self.in_channels = np.array(params.in_channels)
     self.out_channels = np.array(params.out_channels)
     self.n_in_channels = len(self.in_channels)
     self.n_out_channels = len(self.out_channels)
@@ -43,6 +45,7 @@ class GetDataset(Dataset):
     self.crop_size_y = params.crop_size_y
     self.roll = params.roll
     self._get_files_stats()
+    self.orography = params.orography
     self.precip = True if "precip" in params else False
     if self.precip:
         path = params.precip+'/train' if train else params.precip+'/test'
@@ -53,6 +56,14 @@ class GetDataset(Dataset):
         self.normalize = params.normalize
     except:
         self.normalize = True #by default turn on normalization if not specified in config
+
+    if self.orography:
+        self.orography_path = params.orography_path
+
+    if self.precip and 'prev_precip_input' in params:
+      self.prev_precip_input = params.prev_precip_input
+    else:
+      self.prev_precip_input = False
 
 
   def _get_files_stats(self):
@@ -79,6 +90,9 @@ class GetDataset(Dataset):
   def _open_file(self, year_idx):
     _file = h5py.File(self.files_paths[year_idx], 'r')
     self.files[year_idx] = _file['fields']  
+    if self.orography:
+      _orog_file = h5py.File(self.orography_path, 'r')
+      self.orography_field = _orog_file['orog']
     if self.precip:
       self.precip_files[year_idx] = h5py.File(self.precip_paths[year_idx], 'r')['tp']
     
@@ -97,6 +111,8 @@ class GetDataset(Dataset):
     if self.files[year_idx] is None:
         self._open_file(year_idx)
 
+    prev_precip = None
+
     if not self.precip:
       #if we are not at least self.dt*n_history timesteps into the prediction
       if local_idx < self.dt*self.n_history:
@@ -104,23 +120,42 @@ class GetDataset(Dataset):
 
       #if we are on the last image in a year predict identity, else predict next timestep
       step = 0 if local_idx >= self.n_samples_per_year-self.dt else self.dt
+      inp_local_idx = local_idx
+      tar_local_idx = local_idx
+
     else:
       inp_local_idx = local_idx
       tar_local_idx = local_idx
+
       #if we are on the last image in a year predict identity, else predict next timestep
       step = 0 if tar_local_idx >= self.n_samples_per_year-self.dt else self.dt
-      # first year has 2 missing samples in precip (they are first two time points)
-      if year_idx == 0:
+
+      # first training year has 2 missing samples in precip (they are first two time points)
+      if year_idx == 0 and self.train:
         lim = 1458
-        local_idx = local_idx%lim 
+        local_idx = local_idx % lim
         inp_local_idx = local_idx + 2
         tar_local_idx = local_idx
         step = 0 if tar_local_idx >= lim-self.dt else self.dt
+
+      if self.prev_precip_input:
+        if step == 0:
+          # if we are on the last image in a year, the target is identity, so
+          # we will add the precip from one time step earlier
+          prev_precip = self.precip_files[year_idx][tar_local_idx-self.dt]
+        else:
+          # add precip from the same time as the inputs
+          prev_precip = self.precip_files[year_idx][tar_local_idx]
 
     if self.train and self.roll:
       y_roll = random.randint(0, self.img_shape_y)
     else:
       y_roll = 0
+
+    if self.orography:
+        orog = self.orography_field[0:720].astype(np.float32)
+    else:
+        orog = None
 
     if self.train and (self.crop_size_x or self.crop_size_y):
       rnd_x = random.randint(0, self.img_shape_x-self.crop_size_x)
@@ -128,6 +163,6 @@ class GetDataset(Dataset):
     else: 
       rnd_x = 0
       rnd_y = 0
-      
-    return reshape_fields(self.files[year_idx][inp_local_idx, self.in_channels], 'inp', self.crop_size_x, self.crop_size_y, rnd_x, rnd_y,self.params, y_roll, self.train), \
-                reshape_precip(self.precip_files[year_idx][tar_local_idx+step], 'tar', self.crop_size_x, self.crop_size_y, rnd_x, rnd_y, self.params, y_roll, self.train)
+
+    return reshape_fields(self.files[year_idx][inp_local_idx, self.in_channels], 'inp', self.crop_size_x, self.crop_size_y, rnd_x, rnd_y,self.params, y_roll, self.train, True, orog, prev_precip), \
+      reshape_precip(self.precip_files[year_idx][tar_local_idx+step], self.crop_size_x, self.crop_size_y, rnd_x, rnd_y, self.params, y_roll, self.train)

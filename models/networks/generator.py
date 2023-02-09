@@ -10,18 +10,20 @@ from models.networks.stream import Stream as Stream
 from models.networks.stream import NoiseStream as NoiseStream
 from models.networks.AdaIN.function import adaptive_instance_normalization as FAdaIN
 from models.networks.ppad import PeriodicPad2d
+from utils.img_utils import compute_latent_vector_size
 
 class TSITGenerator(BaseNetwork):
 
     def __init__(self, params):
         super().__init__()
         self.params = params
+        nf0 = params.ngf0
         nf = params.ngf
         self.ppad = self.params.use_periodic_padding
         self.FADEResnetBlock = FADEResnetBlockPeriodic if self.ppad else FADEResnetBlock
-        
-        self.sw, self.sh, self.n_stages = self.compute_latent_vector_size()
-        self.content_stream = Stream(self.params, reshape_size=(self.sh*(2**self.n_stages), self.sw*(2**self.n_stages)))
+
+        self.sw, self.sh, self.n_stages = compute_latent_vector_size(params)
+        self.content_stream = Stream(self.params)  # , reshape_size=(self.sh*(2**self.n_stages), self.sw*(2**self.n_stages)))
         self.style_stream = Stream(self.params) if not self.params.no_ss else None
         self.noise_stream = NoiseStream(self.params) if self.params.additive_noise else None
 
@@ -30,37 +32,34 @@ class TSITGenerator(BaseNetwork):
             self.fc = nn.Linear(params.z_dim, 16 * nf * self.sw * self.sh)
         else:
             # Otherwise, we make the network deterministic by starting with
-            # downsampled input instead of random z
+            # downsampled input instead of random z, unless params.downsamp is False
             self.nz = self.params.z_dim if not self.params.downsamp else self.params.input_nc
             padder = PeriodicPad2d(1) if self.ppad else nn.Identity()
             convpad = 0 if self.ppad else 1
             self.fc = nn.Sequential(padder, nn.Conv2d(self.nz, 16 * nf, 3, padding=convpad))
 
-        self.head_0 = self.FADEResnetBlock(16 * nf, 16 * nf, params)
+        self.head_0 = self.FADEResnetBlock(16 * nf, 16 * nf, params) if self.params.num_upsampling_blocks == 8 else None
+        self.head_1 = self.FADEResnetBlock(16 * nf, 16 * nf, params)
 
         self.G_middle_0 = self.FADEResnetBlock(16 * nf, 16 * nf, params)
-        self.G_middle_1 = self.FADEResnetBlock(16 * nf, 16 * nf, params)
+        self.G_middle_1 = self.FADEResnetBlock(16 * nf, 16 * nf0, params)
 
-        self.up_0 = self.FADEResnetBlock(16 * nf, 8 * nf, params)
-        self.up_1 = self.FADEResnetBlock(8 * nf, 4 * nf, params)
-        self.up_2 = self.FADEResnetBlock(4 * nf, 2 * nf, params)
-        self.up_3 = self.FADEResnetBlock(2 * nf, 1 * nf, params)
+        self.up_0 = self.FADEResnetBlock(16 * nf0, 8 * nf0, params)
+        self.up_1 = self.FADEResnetBlock(8  * nf0, 4 * nf0, params)
+        self.up_2 = self.FADEResnetBlock(4  * nf0, 2 * nf0, params)
+        self.up_3 = self.FADEResnetBlock(2  * nf0, 1 * nf0, params)
 
-        final_nc = nf
+        final_nc = nf0
 
-        self.up_4 = self.FADEResnetBlock(1 * nf, 1 * nf, params) if self.params.num_upsampling_blocks == 8 else None
-        
         if self.ppad:
             self.conv_img = nn.Sequential(PeriodicPad2d(1), nn.Conv2d(final_nc, self.params.output_nc, 3, padding=0))
         else:
             self.conv_img = nn.Conv2d(final_nc, self.params.output_nc, 3, padding=1)
 
-        self.up = nn.Upsample(scale_factor=2.)
-
-    def compute_latent_vector_size(self):
-        num_blocks = self.params.num_upsampling_blocks
-        sw, sh = self.params.img_size[0] // (2**num_blocks), self.params.img_size[1] // (2**num_blocks)
-        return sw, sh, num_blocks
+    def up(self, input, size=None):
+        if size is None:
+            return F.interpolate(input, scale_factor=2.)
+        return F.interpolate(input, size=self.params.img_size)
 
     def fadain_alpha(self, content_feat, style_feat, alpha=1.0, c_mask=None, s_mask=None):
         # FAdaIN performs AdaIN on the multi-scale feature representations
@@ -71,10 +70,11 @@ class TSITGenerator(BaseNetwork):
 
     def forward(self, input, real, z=None):
         content = input
-        style =  real
-        ft0, ft1, ft2, ft3, ft4, ft5, ft6, ft7 = self.content_stream(content)
-        sft0, sft1, sft2, sft3, sft4, sft5, sft6, sft7 = self.style_stream(style) if not self.params.no_ss else [None] * 8
-        nft0, nft1, nft2, nft3, nft4, nft5, nft6, nft7 = self.noise_stream(style) if self.params.additive_noise else [None] * 8
+        style = real
+        ft1, ft2, ft3, ft4, ft5, ft6, ft7, ft8 = self.content_stream(content)
+        sft1, sft2, sft3, sft4, sft5, sft6, sft7, sft8 = self.style_stream(style) if not self.params.no_ss else [None] * 8
+        # noise stream only uses real.shape and real.device
+        nft1, nft2, nft3, nft4, nft5, nft6, nft7, nft8 = self.noise_stream(style) if self.params.additive_noise else [None] * 8
         if self.params.use_vae:
             # we sample z from unit normal and reshape the tensor
             if z is None:
@@ -88,56 +88,56 @@ class TSITGenerator(BaseNetwork):
                 x = F.interpolate(content, size=(self.sw, self.sh))
             else:
                 # sample random noise
-                x = torch.randn(content.size(0), 3, self.sw, self.sh, dtype=torch.float32, device=content.get_device())
-            x = self.fc(x)
+                x = torch.randn(content.size(0), self.nz, self.sw, self.sh,
+                                dtype=torch.float32, device=content.get_device())
+            x = self.fc(x) # (n, 16 * nf, 4, 8), assuming num_upsampling_blocks == 8
+
+        if self.params.num_upsampling_blocks == 8:
+            x = self.fadain_alpha(x, sft8, alpha=self.params.alpha) if not self.params.no_ss else x
+            x = x + nft8 if self.params.additive_noise else x
+            x = self.head_0(x, ft8) # (n, 16 * nf, 4, 8)
+            x = self.up(x)
 
         x = self.fadain_alpha(x, sft7, alpha=self.params.alpha) if not self.params.no_ss else x
         x = x + nft7 if self.params.additive_noise else x
-        x = self.head_0(x, ft7)
+        x = self.head_1(x, ft7) # (n, 16 * nf, 8, 16)
 
         x = self.up(x)
         x = self.fadain_alpha(x, sft6, alpha=self.params.alpha) if not self.params.no_ss else x
         x = x + nft6 if self.params.additive_noise else x
-        x = self.G_middle_0(x, ft6)
+        x = self.G_middle_0(x, ft6) # (n, 16 * nf, 16, 32)
 
-
-        if self.params.num_upsampling_blocks == 7 or \
-           self.params.num_upsampling_blocks == 8:
-            x = self.up(x)
-
+        x = self.up(x)
         x = self.fadain_alpha(x, sft5, alpha=self.params.alpha) if not self.params.no_ss else x
         x = x + nft5 if self.params.additive_noise else x
-        x = self.G_middle_1(x, ft5)
+        x = self.G_middle_1(x, ft5) # (n, 16 * nf0, 32, 64)
 
         x = self.up(x)
         x = self.fadain_alpha(x, sft4, alpha=self.params.alpha) if not self.params.no_ss else x
         x = x + nft4 if self.params.additive_noise else x
-        x = self.up_0(x, ft4)
+        x = self.up_0(x, ft4) # (n, 8 * nf0, 64, 128)
 
         x = self.up(x)
         x = self.fadain_alpha(x, sft3, alpha=self.params.alpha) if not self.params.no_ss else x
         x = x + nft3 if self.params.additive_noise else x
-        x = self.up_1(x, ft3)
-        
+        x = self.up_1(x, ft3) # (n, 4 * nf0, 128, 256)
+
         x = self.up(x)
         x = self.fadain_alpha(x, sft2, alpha=self.params.alpha) if not self.params.no_ss else x
         x = x + nft2 if self.params.additive_noise else x
-        x = self.up_2(x, ft2)
-        
+        x = self.up_2(x, ft2) # (n, 2 * nf0, 256, 512)
+
         x = self.up(x)
         x = self.fadain_alpha(x, sft1, alpha=self.params.alpha) if not self.params.no_ss else x
         x = x + nft1 if self.params.additive_noise else x
-        x = self.up_3(x, ft1)
+        x = self.up_3(x, ft1) # (n, 1 * nf0, 512, 1024)
 
-        x = self.up(x)
-        if self.params.num_upsampling_blocks == 8:
-            ft0 = self.up(ft0)
-            x = self.fadain_alpha(x, sft0, alpha=self.params.alpha) if not self.params.no_ss else x
-            x = x + nft0 if self.params.additive_noise else x
-            x = self.up_4(x, ft0)
-            x = self.up(x)
+        if self.params.DEBUG:
+            assert x.shape[-2] == 512 and x.shape[-1] == 1024, \
+                f'unexepcted img shape before final upsampling: {x.shape}'
 
-        x = self.conv_img(F.leaky_relu(x, 2e-1))
+        x = self.up(x, size=self.params.img_size)
+        x = self.conv_img(F.leaky_relu(x, 2e-1)) # (n, input_nc, 720, 1440)
         x = F.relu(x)
         return x
 

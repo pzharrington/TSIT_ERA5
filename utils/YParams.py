@@ -35,6 +35,9 @@ class YParams():
 
   def update_params(self, config):
     for key, val in config.items():
+      # wandb.config turns floats into strs
+      if isinstance(self.params[key], float):
+        val = float(val)
       self.params[key] = val
       self.__setattr__(key, val)
 

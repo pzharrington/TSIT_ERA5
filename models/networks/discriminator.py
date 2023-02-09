@@ -60,7 +60,7 @@ class NLayerDiscriminator(BaseNetwork):
         for n in range(1, params.n_layers_D):
             nf_prev = nf
             nf = min(nf * 2, 512)
-            stride = 1 if n == 3 else 2
+            stride = 1 if n == (params.n_layers_D - 1) else 2
             sequence += [[Padder(padw),
                           norm_layer(nn.Conv2d(nf_prev, nf, kernel_size=kw,
                                                stride=stride, padding=convpad)),

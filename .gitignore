@@ -2,4 +2,6 @@ __pycache__/
 *.out
 .ipynb_checkpoints/
 joblogs
-
+wandb/
+config/sweeps.yaml
+.dir-locals.el
