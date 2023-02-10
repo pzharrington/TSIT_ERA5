@@ -1,5 +1,7 @@
 # Generative Modeling of High-resolution Global Precipitation Forecasts
 
+![Forecast of precipitation at 18hr lead time.](assets/precip_adversarial.png)
+
 This repo contains code for ["Generative Modeling of High-resolution Global
 Precipitation Forecasts"](https://www.climatechange.ai/papers/neurips2022/89).
 
@@ -22,13 +24,13 @@ Precipitation Forecasts"](https://www.climatechange.ai/papers/neurips2022/89).
 > adversarial network (GAN) to better capture fine scales and extremes. Our
 > improvements achieve superior performance in capturing the extreme percentiles
 > of global precipitation, while comparable to state-of-the-art NWP models in
-> terms of forecast skill at 1--2 day lead times. Together, these improvements
+> terms of forecast skill at 1-2 day lead times. Together, these improvements
 > set a new state-of-the-art in global precipitation forecasting.
 
 # Related work
 
-- FourCastNet ([paper](https://arxiv.org/abs/2202.11214), [repo](https://github.com/NVlabs/FourCastNet))
-- TSIT ([paper](https://arxiv.org/abs/2007.12072), [repo](https://github.com/EndlessSora/TSIT))
+- FourCastNet: [paper](https://arxiv.org/abs/2202.11214), [repo](https://github.com/NVlabs/FourCastNet))
+- TSIT: [paper](https://arxiv.org/abs/2007.12072), [repo](https://github.com/EndlessSora/TSIT)
 
 # Citatation
 
