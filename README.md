@@ -32,7 +32,7 @@ Precipitation Forecasts"](https://www.climatechange.ai/papers/neurips2022/89).
 - FourCastNet: [paper](https://arxiv.org/abs/2202.11214), [repo](https://github.com/NVlabs/FourCastNet)
 - TSIT: [paper](https://arxiv.org/abs/2007.12072), [repo](https://github.com/EndlessSora/TSIT)
 
-# Citatation
+# Citation
 
 ```r
 @inproceedings{duncan2022generative,
