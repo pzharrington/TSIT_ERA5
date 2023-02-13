@@ -477,7 +477,7 @@ class Pix2PixTrainer():
                 if self.params.afno_validate:
                     pred_hists_, tar_hists_, afno_hists_ = precip_histc3(gen, data[1], afno_pred)
                 else:
-                    pred_hists_, tar_hists_ = precip_histc2(gen, data[1], afno_pred)
+                    pred_hists_, tar_hists_ = precip_histc2(gen, data[1])
                     afno_hists_ = None
                 precip_hists.setdefault('pred', []).append(pred_hists_.detach().cpu())
                 precip_hists.setdefault('target', []).append(tar_hists_.detach().cpu())
@@ -536,7 +536,7 @@ class Pix2PixTrainer():
 
                     if idx == 0:
                         ensemble_fields = [data[1][0, 0].cpu().numpy(),
-                                           afno_pred[0, 0].cpu().numpy(),
+                                           afno_pred[0, 0].cpu().numpy() if self.params.afno_validate else None,
                                            ens_mean[0, 0].cpu().numpy(),
                                            ens_std.cpu().numpy()]
 
